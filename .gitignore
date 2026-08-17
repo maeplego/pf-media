@@ -1,0 +1,6 @@
+.env
+*.exe
+node_modules/
+.next/
+/apps/api/media-api
+/apps/api/media-api.exe

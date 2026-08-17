@@ -1,0 +1,172 @@
+package web
+
+import (
+	"encoding/json"
+	"errors"
+	"net/http"
+	"strings"
+
+	"github.com/portfolio/pf-media/api/internal/auth"
+	"github.com/portfolio/pf-media/api/internal/domain"
+	"github.com/portfolio/pf-media/api/internal/service"
+)
+
+type Server struct {
+	media *service.Media
+}
+
+func New(media *service.Media) *Server {
+	return &Server{media: media}
+}
+
+func (s *Server) Routes(mw *auth.Middleware, processorToken string) http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	})
+
+	user := mw.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/uploads/presign":
+			s.presign(w, r)
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/uploads/complete":
+			s.complete(w, r)
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/files":
+			s.listFiles(w, r)
+		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/v1/files/"):
+			s.getFile(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+
+	mux.Handle("/v1/", user)
+	mux.Handle("POST /internal/v1/jobs/{id}/finish", auth.ProcessorToken(processorToken)(http.HandlerFunc(s.finishJob)))
+	return mux
+}
+
+func (s *Server) presign(w http.ResponseWriter, r *http.Request) {
+	u, ok := auth.UserFrom(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	var body struct {
+		ContentType string `json:"contentType"`
+		Size        int64  `json:"size"`
+		Purpose     string `json:"purpose"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	res, err := s.media.Presign(r.Context(), u.Sub, service.PresignInput{
+		ContentType: body.ContentType,
+		Size:        body.Size,
+		Purpose:     body.Purpose,
+	})
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+func (s *Server) complete(w http.ResponseWriter, r *http.Request) {
+	u, ok := auth.UserFrom(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	var body struct {
+		FileID string `json:"fileId"`
+		ETag   string `json:"etag"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	res, err := s.media.Complete(r.Context(), u.Sub, body.FileID, body.ETag)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+func (s *Server) listFiles(w http.ResponseWriter, r *http.Request) {
+	u, ok := auth.UserFrom(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	files, err := s.media.ListFiles(r.Context(), u.Sub, 50)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"files": files})
+}
+
+func (s *Server) getFile(w http.ResponseWriter, r *http.Request) {
+	u, ok := auth.UserFrom(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	id := strings.TrimPrefix(r.URL.Path, "/v1/files/")
+	res, err := s.media.GetFile(r.Context(), u.Sub, id)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+func (s *Server) finishJob(w http.ResponseWriter, r *http.Request) {
+	jobID := r.PathValue("id")
+	var body struct {
+		Variants map[string]struct {
+			Key         string `json:"key"`
+			ContentType string `json:"contentType"`
+		} `json:"variants"`
+		Error string `json:"error"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	variants := domain.Variants{}
+	for name, v := range body.Variants {
+		variants[name] = domain.Variant{Key: v.Key, ContentType: v.ContentType}
+	}
+	if err := s.media.FinishJob(r.Context(), jobID, variants, body.Error); err != nil {
+		writeErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(v)
+}
+
+func writeErr(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, domain.ErrNotFound):
+		http.Error(w, "not found", http.StatusNotFound)
+	case errors.Is(err, domain.ErrForbidden):
+		http.Error(w, "forbidden", http.StatusForbidden)
+	case errors.Is(err, domain.ErrQuota):
+		http.Error(w, "quota exceeded", http.StatusForbidden)
+	case errors.Is(err, domain.ErrInvalid):
+		http.Error(w, "invalid", http.StatusBadRequest)
+	case errors.Is(err, domain.ErrConflict):
+		http.Error(w, "conflict", http.StatusConflict)
+	default:
+		http.Error(w, "internal error", http.StatusInternalServerError)
+	}
+}
