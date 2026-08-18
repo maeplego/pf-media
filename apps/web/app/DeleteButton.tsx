@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { deleteDriveFile } from "./actions";
 
-export function DeleteButton({ user, fileId }: { user: string; fileId: string }) {
+export function DeleteButton({ fileId, devUser }: { fileId: string; devUser?: string }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -13,7 +13,7 @@ export function DeleteButton({ user, fileId }: { user: string; fileId: string })
     setError(null);
     setBusy(true);
     try {
-      const message = await deleteDriveFile(user, fileId);
+      const message = await deleteDriveFile(fileId, devUser);
       if (message) {
         setError(message);
         return;

@@ -4,14 +4,14 @@ import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 import { createDriveFolder } from "./actions";
 
-export function CreateFolderForm({ user, parentId }: { user: string; parentId: string }) {
+export function CreateFolderForm({ parentId, devUser }: { parentId: string; devUser?: string }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
 
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const name = String(new FormData(e.currentTarget).get("name") || "");
-    const message = await createDriveFolder(user, name, parentId);
+    const message = await createDriveFolder(name, parentId, devUser);
     if (message) {
       setError(message);
       return;

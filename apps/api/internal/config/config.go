@@ -23,6 +23,7 @@ type Config struct {
 	ProcessorToken     string
 	DevAuth            bool
 	OIDCIssuer         string
+	OIDCInternalBase   string
 	OIDCAudience       string
 	PresignTTL         int // seconds
 }
@@ -42,6 +43,7 @@ func FromEnv() (Config, error) {
 		ProcessorToken:   strings.TrimSpace(os.Getenv("MEDIA_PROCESSOR_TOKEN")),
 		DevAuth:          envBool("MEDIA_DEV_AUTH", true),
 		OIDCIssuer:       strings.TrimRight(strings.TrimSpace(os.Getenv("OIDC_ISSUER")), "/"),
+		OIDCInternalBase: strings.TrimRight(strings.TrimSpace(os.Getenv("OIDC_INTERNAL_BASE")), "/"),
 		OIDCAudience:     strings.TrimSpace(os.Getenv("OIDC_AUDIENCE")),
 		PresignTTL:       envInt("MEDIA_PRESIGN_TTL_SEC", 900),
 	}

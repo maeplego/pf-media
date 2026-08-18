@@ -24,7 +24,14 @@ docker compose -f deploy/compose.yaml --env-file deploy/.env up --build
 | http://localhost:3900 | Garage S3 API |
 | http://localhost:3004 | マイドライブ UI |
 
-ローカルデモでは UI が `X-Dev-User-Sub` ヘッダでユーザーを切り替えます。IdP 連携は `OIDC_ISSUER` を API に渡すと Bearer JWT を JWKS 検証します（P01）。
+ローカルデモ（既定）では UI が `?user=` と `X-Dev-User-Sub` でユーザーを切り替えます。P01 IdP 連携時は web に `OIDC_ISSUER` と `OIDC_CLIENT_ID` を渡し、API に `OIDC_ISSUER`（Compose 内は `OIDC_INTERNAL_BASE`）と `MEDIA_DEV_AUTH=false` を設定します。API は JWT（ID token）または opaque access token（`/userinfo`）で `sub` を解決します。
+
+### OIDC デモ（pf-identity と併用）
+
+1. `pf-identity/deploy` で IdP を起動（http://localhost:8080）
+2. 管理 UI（http://localhost:3002）で public クライアント `pf-media-web` を登録。redirect: `http://localhost:3004/callback`
+3. `deploy/.env` に OIDC 変数を設定（`.env.example` 参照）し `MEDIA_DEV_AUTH=false`
+4. media Compose を再ビルド。http://localhost:3004 → IdP ログイン → マイドライブ
 
 Compose では API と web に `extra_hosts: localhost:host-gateway` を付けています。presign URL のホスト（`localhost:3900`）と Garage 署名を揃え、ドライブ UI からの PUT がコンテナ内の `localhost` ではなくホスト上の Garage に届くようにするためです。S3 クライアントは path-style アクセスを使います（Garage 要件）。
 

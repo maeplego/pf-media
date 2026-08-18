@@ -2,7 +2,9 @@ package auth
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"sync"
@@ -28,16 +30,20 @@ func UserFrom(ctx context.Context) (User, bool) {
 }
 
 type Middleware struct {
-	devAuth    bool
-	issuer     string
-	audience   string
-	jwks       jwk.Set
-	jwksMu     sync.RWMutex
-	jwksLoaded time.Time
+	devAuth      bool
+	issuer       string
+	internalBase string
+	audience     string
+	jwks         jwk.Set
+	jwksMu       sync.RWMutex
+	jwksLoaded   time.Time
 }
 
-func New(devAuth bool, issuer, audience string) *Middleware {
-	return &Middleware{devAuth: devAuth, issuer: issuer, audience: audience}
+func New(devAuth bool, issuer, internalBase, audience string) *Middleware {
+	if internalBase == "" {
+		internalBase = issuer
+	}
+	return &Middleware{devAuth: devAuth, issuer: issuer, internalBase: internalBase, audience: audience}
 }
 
 func (m *Middleware) Handler(next http.Handler) http.Handler {
@@ -66,31 +72,60 @@ func (m *Middleware) authenticate(r *http.Request) (User, error) {
 	if m.issuer == "" {
 		return User{}, fmt.Errorf("oidc not configured")
 	}
-	set, err := m.jwksSet(r.Context())
+	if u, err := m.authenticateJWT(r.Context(), token); err == nil {
+		return u, nil
+	}
+	return m.authenticateUserInfo(r.Context(), token)
+}
+
+func (m *Middleware) authenticateJWT(ctx context.Context, token string) (User, error) {
+	set, err := m.jwksSet(ctx)
 	if err != nil {
 		return User{}, err
 	}
-	tok, err := jwt.Parse([]byte(token), jwt.WithKeySet(set), jwt.WithIssuer(m.issuer))
-	if err != nil {
-		return User{}, err
-	}
+	opts := []jwt.ParseOption{jwt.WithKeySet(set), jwt.WithIssuer(m.issuer)}
 	if m.audience != "" {
-		found := false
-		for _, aud := range tok.Audience() {
-			if aud == m.audience {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return User{}, fmt.Errorf("audience mismatch")
-		}
+		opts = append(opts, jwt.WithAudience(m.audience))
+	}
+	tok, err := jwt.Parse([]byte(token), opts...)
+	if err != nil {
+		return User{}, err
 	}
 	sub := tok.Subject()
 	if sub == "" {
 		return User{}, fmt.Errorf("empty sub")
 	}
 	return User{Sub: sub}, nil
+}
+
+func (m *Middleware) authenticateUserInfo(ctx context.Context, token string) (User, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, m.internalBase+"/userinfo", nil)
+	if err != nil {
+		return User{}, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return User{}, err
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return User{}, fmt.Errorf("userinfo %d", res.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(res.Body, 4096))
+	if err != nil {
+		return User{}, err
+	}
+	var ui struct {
+		Sub string `json:"sub"`
+	}
+	if err := json.Unmarshal(body, &ui); err != nil {
+		return User{}, err
+	}
+	if ui.Sub == "" {
+		return User{}, fmt.Errorf("empty sub")
+	}
+	return User{Sub: ui.Sub}, nil
 }
 
 func (m *Middleware) jwksSet(ctx context.Context) (jwk.Set, error) {
@@ -106,7 +141,7 @@ func (m *Middleware) jwksSet(ctx context.Context) (jwk.Set, error) {
 	if m.jwks != nil && time.Since(m.jwksLoaded) < 5*time.Minute {
 		return m.jwks, nil
 	}
-	url := m.issuer + "/.well-known/jwks.json"
+	url := m.internalBase + "/.well-known/jwks.json"
 	set, err := jwk.Fetch(ctx, url)
 	if err != nil {
 		return nil, err

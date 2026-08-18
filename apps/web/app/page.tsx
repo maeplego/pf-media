@@ -1,11 +1,14 @@
 import { unstable_noStore as noStore } from "next/cache";
 import { redirect } from "next/navigation";
-import { apiFetch } from "./actions";
+
+import { apiFetchForPage, retryDriveJob, submitDriveShare } from "./actions";
 import { CreateFolderForm } from "./CreateFolderForm";
 import { DeleteButton } from "./DeleteButton";
 import { DeleteFolderButton } from "./DeleteFolderButton";
 import { PollPending } from "./PollPending";
 import { UploadForm } from "./UploadForm";
+import { getDriveSession } from "../lib/session";
+import { oidcEnabled } from "../lib/oidc/env";
 
 type FileView = {
   id: string;
@@ -29,9 +32,9 @@ type FolderView = {
   name: string;
 };
 
-async function listDrive(sub: string, folderId: string): Promise<{ files: FileView[]; folders: FolderView[]; quota: QuotaView }> {
+async function listDrive(devUser: string | undefined, folderId: string): Promise<{ files: FileView[]; folders: FolderView[]; quota: QuotaView }> {
   const q = folderId ? `?folderId=${encodeURIComponent(folderId)}` : "";
-  const data = await apiFetch(`/v1/files${q}`, sub);
+  const data = await apiFetchForPage(`/v1/files${q}`, devUser);
   return {
     files: (data.files as FileView[]) || [],
     folders: (data.folders as FolderView[]) || [],
@@ -39,12 +42,16 @@ async function listDrive(sub: string, folderId: string): Promise<{ files: FileVi
   };
 }
 
-function driveHref(user: string, folder?: string) {
-  const q = new URLSearchParams({ user });
+function driveHref(folder?: string, devUser?: string) {
+  const q = new URLSearchParams();
+  if (devUser) {
+    q.set("user", devUser);
+  }
   if (folder) {
     q.set("folder", folder);
   }
-  return `?${q.toString()}`;
+  const s = q.toString();
+  return s ? `?${s}` : "/";
 }
 
 function formatBytes(n: number) {
@@ -53,68 +60,75 @@ function formatBytes(n: number) {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-async function createShare(sub: string, fileId: string, expiresInSeconds: number, password: string) {
-  "use server";
-  const data = await apiFetch("/v1/share-links", sub, {
-    method: "POST",
-    body: JSON.stringify({ fileId, expiresInSeconds, password }),
-  });
-  redirect(`/s/${data.token}`);
-}
-
-async function retryJob(sub: string, jobId: string) {
-  "use server";
-  await apiFetch(`/v1/jobs/${jobId}/retry`, sub, { method: "POST", body: "{}" });
-}
-
 export default async function Page({
   searchParams,
 }: {
-  searchParams: Promise<{ user?: string; folder?: string }>;
+  searchParams: Promise<{ user?: string; folder?: string; error?: string }>;
 }) {
   noStore();
   const sp = await searchParams;
-  const user = sp.user || "demo-user-a";
   const folderId = sp.folder || "";
-  const { files, folders, quota } = await listDrive(user, folderId).catch(() => ({
+  const session = await getDriveSession(sp.user);
+  if (oidcEnabled() && !session) {
+    redirect("/login");
+  }
+  const devUser = session!.devMode ? session!.sub : undefined;
+  const { files, folders, quota } = await listDrive(devUser, folderId).catch(() => ({
     files: [] as FileView[],
     folders: [] as FolderView[],
     quota: { usedBytes: 0, limitBytes: 0 },
   }));
   const current = folderId
-    ? await apiFetch(`/v1/folders/${folderId}`, user).catch(() => null)
+    ? await apiFetchForPage(`/v1/folders/${folderId}`, devUser).catch(() => null)
     : null;
   const pending = files.some((f) => f.status === "pending");
 
   return (
     <div>
       <p>
-        ユーザー: <strong>{user}</strong>{" "}
-        <a href={driveHref("demo-user-a")}>A</a> · <a href={driveHref("demo-user-b")}>B</a>
-        （A のファイルは B には出ません）
+        ユーザー: <strong>{session!.displayName || session!.sub}</strong>
+        {session!.devMode ? (
+          <>
+            {" "}
+            <a href={driveHref(undefined, "demo-user-a")}>A</a> · <a href={driveHref(undefined, "demo-user-b")}>B</a>
+            <span style={{ color: "#666" }}>（開発モード: A のファイルは B には出ません）</span>
+          </>
+        ) : (
+          <>
+            {" "}
+            <form action="/logout" method="post" style={{ display: "inline" }}>
+              <button type="submit">ログアウト</button>
+            </form>
+          </>
+        )}
       </p>
+      {sp.error ? (
+        <p role="alert" style={{ color: "crimson" }}>
+          ログインエラー: {sp.error}
+        </p>
+      ) : null}
       <p>
         容量 <strong>{formatBytes(quota.usedBytes)}</strong> / {formatBytes(quota.limitBytes)}
         <span style={{ color: "#666" }}>（アップロードで増え、削除で戻ります）</span>
       </p>
       <p>
-        <a href={driveHref(user)}>ルート</a>
+        <a href={driveHref(undefined, devUser)}>ルート</a>
         {current?.parentId ? (
           <>
             {" / "}
-            <a href={driveHref(user, current.parentId)}>上へ</a>
+            <a href={driveHref(current.parentId, devUser)}>上へ</a>
           </>
         ) : null}
         {current?.name ? ` / ${current.name}` : ""}
       </p>
       <PollPending active={pending} />
-      <UploadForm user={user} folderId={folderId} />
-      <CreateFolderForm user={user} parentId={folderId} />
+      <UploadForm folderId={folderId} devUser={devUser} />
+      <CreateFolderForm parentId={folderId} devUser={devUser} />
       <ul style={{ listStyle: "none", padding: 0, marginTop: "1.5rem" }}>
         {folders.map((dir) => (
           <li key={dir.id} style={{ marginBottom: "0.75rem" }}>
-            📁 <a href={driveHref(user, dir.id)}>{dir.name}</a>
-            <DeleteFolderButton user={user} folderId={dir.id} folderName={dir.name} />
+            📁 <a href={driveHref(dir.id, devUser)}>{dir.name}</a>
+            <DeleteFolderButton folderId={dir.id} folderName={dir.name} devUser={devUser} />
           </li>
         ))}
         {files.map((f) => {
@@ -132,24 +146,20 @@ export default async function Page({
                 <em>処理中… サムネは processor 完了後に出ます</em>
               )}
               {f.status === "failed" && f.jobId ? (
-                <form action={async () => { "use server"; await retryJob(user, f.jobId!); }}>
+                <form action={retryDriveJob.bind(null, f.jobId, devUser)}>
                   <button type="submit">処理を再実行</button>
                 </form>
               ) : null}
-              <DeleteButton user={user} fileId={f.id} />
+              <DeleteButton fileId={f.id} devUser={devUser} />
               <div style={{ marginTop: 8 }}>
-                <form
-                  action={async (fd) => {
-                    "use server";
-                    const pw = String(fd.get("password") || "");
-                    const ttl = Number(fd.get("ttl") || 3600);
-                    await createShare(user, f.id, ttl, pw);
-                  }}
-                  style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}
-                >
+                <form action={submitDriveShare.bind(null, f.id, devUser)} style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                   <input type="password" name="password" placeholder="パスワード（任意）" autoComplete="new-password" />
-                  <button type="submit" name="ttl" value="3600">1時間共有</button>
-                  <button type="submit" name="ttl" value="60">1分で期限切れ</button>
+                  <button type="submit" name="ttl" value="3600">
+                    1時間共有
+                  </button>
+                  <button type="submit" name="ttl" value="60">
+                    1分で期限切れ
+                  </button>
                 </form>
               </div>
             </li>

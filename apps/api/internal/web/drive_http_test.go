@@ -16,7 +16,7 @@ import (
 func driveHandler() http.Handler {
 	store := mem.New()
 	svc := service.NewMedia(store, stubObjects{}, nil, 10_000, 5000, time.Minute)
-	return New(svc).Routes(auth.New(true, "", ""), "processor-token")
+	return New(svc).Routes(auth.New(true, "", "", ""), "processor-token")
 }
 
 func doJSON(t *testing.T, h http.Handler, method, path, sub, body string) *httptest.ResponseRecorder {

@@ -5,13 +5,13 @@ import { useState } from "react";
 import { deleteDriveFolder } from "./actions";
 
 export function DeleteFolderButton({
-  user,
   folderId,
   folderName,
+  devUser,
 }: {
-  user: string;
   folderId: string;
   folderName: string;
+  devUser?: string;
 }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
@@ -25,7 +25,7 @@ export function DeleteFolderButton({
     setError(null);
     setBusy(true);
     try {
-      const message = await deleteDriveFolder(user, folderId);
+      const message = await deleteDriveFolder(folderId, devUser);
       if (message) {
         setError(message);
         return;

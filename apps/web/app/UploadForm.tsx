@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 import { uploadDriveFile } from "./actions";
 
-export function UploadForm({ user, folderId }: { user: string; folderId: string }) {
+export function UploadForm({ folderId, devUser }: { folderId: string; devUser?: string }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -14,7 +14,7 @@ export function UploadForm({ user, folderId }: { user: string; folderId: string 
     setError(null);
     setBusy(true);
     try {
-      const message = await uploadDriveFile(user, new FormData(e.currentTarget));
+      const message = await uploadDriveFile(new FormData(e.currentTarget), devUser);
       if (message) {
         setError(message);
         return;

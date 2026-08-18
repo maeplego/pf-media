@@ -59,7 +59,7 @@ func main() {
 		time.Duration(cfg.PresignTTL)*time.Second,
 	)
 
-	mw := auth.New(cfg.DevAuth, cfg.OIDCIssuer, cfg.OIDCAudience)
+	mw := auth.New(cfg.DevAuth, cfg.OIDCIssuer, cfg.OIDCInternalBase, cfg.OIDCAudience)
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
 		Handler:           web.New(media).Routes(mw, cfg.ProcessorToken),

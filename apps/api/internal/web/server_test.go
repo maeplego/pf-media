@@ -69,7 +69,7 @@ func TestPublicShareDoesNotRequireLogin(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	h := New(svc).Routes(auth.New(true, "", ""), "processor-token")
+	h := New(svc).Routes(auth.New(true, "", "", ""), "processor-token")
 	req := httptest.NewRequest(http.MethodGet, "/v1/s/"+link.Token, nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
