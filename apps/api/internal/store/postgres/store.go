@@ -195,10 +195,10 @@ func (s *Store) AddQuota(ctx context.Context, ownerSub string, delta int64, limi
 	if err != nil {
 		return err
 	}
-	if used+delta > limit {
+	if delta > 0 && used+delta > limit {
 		return domain.ErrQuota
 	}
-	_, err = tx.Exec(ctx, `UPDATE user_quota SET used_bytes = used_bytes + $2 WHERE owner_sub = $1`, ownerSub, delta)
+	_, err = tx.Exec(ctx, `UPDATE user_quota SET used_bytes = GREATEST(0, used_bytes + $2) WHERE owner_sub = $1`, ownerSub, delta)
 	if err != nil {
 		return err
 	}
@@ -212,6 +212,17 @@ func (s *Store) GetQuotaUsed(ctx context.Context, ownerSub string) (int64, error
 		return 0, nil
 	}
 	return used, err
+}
+
+func (s *Store) DeleteFile(ctx context.Context, id string) error {
+	tag, err := s.pool.Exec(ctx, `DELETE FROM files WHERE id = $1`, id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
 }
 
 func (s *Store) CreateShareLink(ctx context.Context, l domain.ShareLink) error {

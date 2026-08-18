@@ -20,6 +20,7 @@ type ObjectStore interface {
 	PresignGet(ctx context.Context, key string, ttl time.Duration) (string, error)
 	Stat(ctx context.Context, key string) (int64, string, error)
 	Delete(ctx context.Context, key string) error
+	DeletePrefix(ctx context.Context, prefix string) error
 	Bucket() string
 }
 
@@ -388,6 +389,26 @@ func (m *Media) GetQuota(ctx context.Context, ownerSub string) (QuotaView, error
 		return QuotaView{}, err
 	}
 	return QuotaView{UsedBytes: used, LimitBytes: m.quotaLimit}, nil
+}
+
+func (m *Media) DeleteFile(ctx context.Context, ownerSub, fileID string) error {
+	f, err := m.store.GetFile(ctx, fileID)
+	if err != nil {
+		return err
+	}
+	if f.OwnerSub != ownerSub {
+		return domain.ErrForbidden
+	}
+	if err := m.objects.DeletePrefix(ctx, objectstore.ObjectPrefix(f.OwnerSub, f.ID)); err != nil {
+		return err
+	}
+	if err := m.store.DeleteFile(ctx, f.ID); err != nil {
+		return err
+	}
+	if f.SizeBytes == 0 {
+		return nil
+	}
+	return m.store.AddQuota(ctx, ownerSub, -f.SizeBytes, m.quotaLimit)
 }
 
 func (m *Media) GetJob(ctx context.Context, ownerSub, jobID string) (JobView, error) {

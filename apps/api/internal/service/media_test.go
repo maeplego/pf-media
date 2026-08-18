@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -33,6 +34,15 @@ func (f *fakeObjects) Stat(_ context.Context, key string) (int64, string, error)
 
 func (f *fakeObjects) Delete(_ context.Context, key string) error {
 	delete(f.keys, key)
+	return nil
+}
+
+func (f *fakeObjects) DeletePrefix(_ context.Context, prefix string) error {
+	for k := range f.keys {
+		if strings.HasPrefix(k, prefix) {
+			delete(f.keys, k)
+		}
+	}
 	return nil
 }
 
@@ -322,5 +332,45 @@ func TestGetQuotaAfterComplete(t *testing.T) {
 	}
 	if q.UsedBytes != 10 {
 		t.Fatalf("used %d", q.UsedBytes)
+	}
+}
+
+func TestDeleteFileReclaimsQuotaAndObjects(t *testing.T) {
+	store := mem.New()
+	objs := &fakeObjects{}
+	svc := NewMedia(store, objs, nil, 10_000, 5000, time.Minute)
+	fileID := completeOwnedPNG(t, svc, objs, "owner")
+	objs.keys["user/owner/"+fileID+"/thumb"] = 4
+	if _, err := svc.CreateShareLink(context.Background(), "owner", fileID, time.Hour, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.DeleteFile(context.Background(), "other", fileID); !errors.Is(err, domain.ErrForbidden) {
+		t.Fatalf("other user: %v", err)
+	}
+	q, err := svc.GetQuota(context.Background(), "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if q.UsedBytes != 10 {
+		t.Fatalf("quota changed after forbidden delete: %d", q.UsedBytes)
+	}
+	if err := svc.DeleteFile(context.Background(), "owner", fileID); err != nil {
+		t.Fatal(err)
+	}
+	q, err = svc.GetQuota(context.Background(), "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if q.UsedBytes != 0 {
+		t.Fatalf("used after delete %d", q.UsedBytes)
+	}
+	prefix := "user/owner/" + fileID + "/"
+	for k := range objs.keys {
+		if strings.HasPrefix(k, prefix) {
+			t.Fatalf("object left %s", k)
+		}
+	}
+	if _, err := store.GetFile(context.Background(), fileID); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("file still stored: %v", err)
 	}
 }

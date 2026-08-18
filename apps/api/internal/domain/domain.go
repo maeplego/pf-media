@@ -106,6 +106,7 @@ type Store interface {
 	UpdateJob(ctx context.Context, id string, status JobStatus, errMsg string) error
 	AddQuota(ctx context.Context, ownerSub string, delta int64, limit int64) error
 	GetQuotaUsed(ctx context.Context, ownerSub string) (int64, error)
+	DeleteFile(ctx context.Context, id string) error
 	CreateShareLink(ctx context.Context, l ShareLink) error
 	GetShareLinkByToken(ctx context.Context, token string) (ShareLink, error)
 }

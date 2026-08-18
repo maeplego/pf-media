@@ -23,6 +23,7 @@ func (stubObjects) PresignGet(_ context.Context, key string, _ time.Duration) (s
 }
 func (stubObjects) Stat(_ context.Context, _ string) (int64, string, error) { return 10, "etag", nil }
 func (stubObjects) Delete(_ context.Context, _ string) error                { return nil }
+func (stubObjects) DeletePrefix(_ context.Context, _ string) error          { return nil }
 func (stubObjects) Bucket() string                                          { return "media" }
 
 func TestWriteErrTooLarge(t *testing.T) {

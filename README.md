@@ -35,6 +35,7 @@ Compose では API に `extra_hosts: localhost:host-gateway` を付け、presign
 3. 「1時間共有」で公開ページへ。パスワード欄は空でも、入れて守ってもよい
 4. 「1分で期限切れ」のリンクは、期限後に 410 になる
 5. 別ユーザー B に切り替え、A のマイドライブ一覧には A のファイルが出ない
+6. 「削除」でオブジェクトと容量を返す
 
 ## 契約（他プロジェクト）
 
@@ -42,6 +43,7 @@ Compose では API に `extra_hosts: localhost:host-gateway` を付け、presign
 - `POST /v1/uploads/complete` — `{ fileId, etag }`
 - `GET /v1/files` — 所有者の一覧と `quota`
 - `GET /v1/files/:id` — メタデータと派生 URL（署名付き GET）
+- `DELETE /v1/files/:id` — 所有者のみ。派生オブジェクトを消しクォータを返す
 - `GET /v1/quota` — `{ usedBytes, limitBytes }`
 - `POST /v1/share-links` — `{ fileId, expiresInSeconds, password? }`（所有者のみ。password は任意）
 - `GET /v1/s/:token` — ログイン不要。期限切れは 410。パスワード付きは `X-Share-Password` が必要（無いと 401）

@@ -37,6 +37,8 @@ func (s *Server) Routes(mw *auth.Middleware, processorToken string) http.Handler
 			s.listFiles(w, r)
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/quota":
 			s.getQuota(w, r)
+		case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/v1/files/"):
+			s.deleteFile(w, r)
 		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/v1/files/"):
 			s.getFile(w, r)
 		case r.Method == http.MethodPost && r.URL.Path == "/v1/share-links":
@@ -152,6 +154,24 @@ func (s *Server) getFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, res)
+}
+
+func (s *Server) deleteFile(w http.ResponseWriter, r *http.Request) {
+	u, ok := auth.UserFrom(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	id := strings.TrimPrefix(r.URL.Path, "/v1/files/")
+	if id == "" || strings.Contains(id, "/") {
+		http.NotFound(w, r)
+		return
+	}
+	if err := s.media.DeleteFile(r.Context(), u.Sub, id); err != nil {
+		writeErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) createShare(w http.ResponseWriter, r *http.Request) {

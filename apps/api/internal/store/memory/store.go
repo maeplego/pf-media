@@ -153,8 +153,11 @@ func (s *Store) AddQuota(_ context.Context, ownerSub string, delta int64, limit 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	used := s.quota[ownerSub] + delta
-	if used > limit {
+	if delta > 0 && used > limit {
 		return domain.ErrQuota
+	}
+	if used < 0 {
+		used = 0
 	}
 	s.quota[ownerSub] = used
 	return nil
@@ -164,6 +167,26 @@ func (s *Store) GetQuotaUsed(_ context.Context, ownerSub string) (int64, error) 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.quota[ownerSub], nil
+}
+
+func (s *Store) DeleteFile(_ context.Context, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.files[id]; !ok {
+		return domain.ErrNotFound
+	}
+	delete(s.files, id)
+	for jid, j := range s.jobs {
+		if j.FileID == id {
+			delete(s.jobs, jid)
+		}
+	}
+	for token, link := range s.shares {
+		if link.FileID == id {
+			delete(s.shares, token)
+		}
+	}
+	return nil
 }
 
 func (s *Store) CreateShareLink(_ context.Context, l domain.ShareLink) error {

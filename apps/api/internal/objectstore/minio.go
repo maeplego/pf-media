@@ -74,10 +74,31 @@ func (c *Client) Delete(ctx context.Context, key string) error {
 	return c.mc.RemoveObject(ctx, c.bucket, key, minio.RemoveObjectOptions{})
 }
 
+// DeletePrefix removes orig and derived objects under a file prefix (must be non-empty).
+func (c *Client) DeletePrefix(ctx context.Context, prefix string) error {
+	if prefix == "" || prefix == "/" {
+		return fmt.Errorf("refusing empty object prefix")
+	}
+	listed := c.mc.ListObjects(ctx, c.bucket, minio.ListObjectsOptions{
+		Prefix:    prefix,
+		Recursive: true,
+	})
+	for err := range c.mc.RemoveObjects(ctx, c.bucket, listed, minio.RemoveObjectsOptions{}) {
+		if err.Err != nil {
+			return err.Err
+		}
+	}
+	return nil
+}
+
 func (c *Client) Bucket() string { return c.bucket }
 
 func ObjectKey(ownerSub, fileID string) string {
 	return fmt.Sprintf("user/%s/%s/orig", ownerSub, fileID)
+}
+
+func ObjectPrefix(ownerSub, fileID string) string {
+	return fmt.Sprintf("user/%s/%s/", ownerSub, fileID)
 }
 
 func VariantKey(ownerSub, fileID, variant string) string {

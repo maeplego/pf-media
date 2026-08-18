@@ -26,7 +26,14 @@ async function apiFetch(path: string, sub: string, init?: RequestInit) {
   if (!res.ok) {
     throw new Error(await res.text());
   }
-  return res.json();
+  if (res.status === 204) {
+    return {};
+  }
+  const text = await res.text();
+  if (!text) {
+    return {};
+  }
+  return JSON.parse(text);
 }
 
 type QuotaView = {
@@ -85,6 +92,11 @@ async function retryJob(sub: string, jobId: string) {
   await apiFetch(`/v1/jobs/${jobId}/retry`, sub, { method: "POST", body: "{}" });
 }
 
+async function deleteOwnedFile(sub: string, fileId: string) {
+  "use server";
+  await apiFetch(`/v1/files/${fileId}`, sub, { method: "DELETE" });
+}
+
 export default async function Page({
   searchParams,
 }: {
@@ -135,6 +147,9 @@ export default async function Page({
                   <button type="submit">処理を再実行</button>
                 </form>
               ) : null}
+              <form action={async () => { "use server"; await deleteOwnedFile(user, f.id); }} style={{ marginTop: 8 }}>
+                <button type="submit">削除</button>
+              </form>
               <div style={{ marginTop: 8 }}>
                 <form
                   action={async (fd) => {
