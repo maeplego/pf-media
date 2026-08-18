@@ -16,11 +16,16 @@ type Client struct {
 	bucket    string
 }
 
-func New(endpoint, publicEndpoint, accessKey, secretKey, bucket string, useSSL bool) (*Client, error) {
-	mc, err := minio.New(endpoint, &minio.Options{
-		Creds:  credentials.NewStaticV4(accessKey, secretKey, ""),
-		Secure: useSSL,
-	})
+func New(endpoint, publicEndpoint, region, accessKey, secretKey, bucket string, useSSL bool) (*Client, error) {
+	opts := func(host string) (*minio.Client, error) {
+		return minio.New(host, &minio.Options{
+			Creds:        credentials.NewStaticV4(accessKey, secretKey, ""),
+			Secure:       useSSL,
+			Region:       region,
+			BucketLookup: minio.BucketLookupPath,
+		})
+	}
+	mc, err := opts(endpoint)
 	if err != nil {
 		return nil, err
 	}
@@ -30,10 +35,7 @@ func New(endpoint, publicEndpoint, accessKey, secretKey, bucket string, useSSL b
 	}
 	presignMC := mc
 	if presignEndpoint != endpoint {
-		presignMC, err = minio.New(presignEndpoint, &minio.Options{
-			Creds:  credentials.NewStaticV4(accessKey, secretKey, ""),
-			Secure: useSSL,
-		})
+		presignMC, err = opts(presignEndpoint)
 		if err != nil {
 			return nil, err
 		}

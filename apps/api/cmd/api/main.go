@@ -31,11 +31,11 @@ func main() {
 	}
 	defer store.Close()
 
-	minioClient, err := objectstore.New(cfg.MinIOEndpoint, cfg.MinIOPublicEndpoint, cfg.MinIOAccessKey, cfg.MinIOSecretKey, cfg.MinIOBucket, cfg.MinIOUseSSL)
+	s3Client, err := objectstore.New(cfg.S3Endpoint, cfg.S3PublicEndpoint, cfg.S3Region, cfg.S3AccessKey, cfg.S3SecretKey, cfg.S3Bucket, cfg.S3UseSSL)
 	if err != nil {
 		log.Fatal(err)
 	}
-	if err := minioClient.EnsureBucket(ctx); err != nil {
+	if err := s3Client.EnsureBucket(ctx); err != nil {
 		log.Fatal(err)
 	}
 
@@ -52,7 +52,7 @@ func main() {
 
 	media := service.NewMedia(
 		store,
-		service.NewObjectStore(minioClient),
+		service.NewObjectStore(s3Client),
 		q,
 		cfg.QuotaBytes,
 		cfg.MaxUploadBytes,

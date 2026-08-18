@@ -2,13 +2,13 @@
 
 P03 のメディア基盤です。**本番 CDN / ウイルススキャン基盤の置き換えではありません。**
 
-オブジェクト本体は MinIO（本番は S3 / R2）、メタデータと権限は PostgreSQL、画像派生は非同期 processor（sharp）が担当します。
+オブジェクト本体は開発時 **Garage**（S3 互換）、本番は S3 / R2。メタデータと権限は PostgreSQL、画像派生は非同期 processor（sharp）が担当します。
 
 ```
 apps/api/        presign / complete / ファイル API（Go）
 apps/processor/  画像リサイズ・WebP・EXIF 除去（Node + sharp）
 apps/web/        マイドライブ UI（Next.js）
-deploy/          Postgres + MinIO + Redis + Compose
+deploy/          Postgres + Garage + Redis + Compose
 ```
 
 ## 起動
@@ -21,12 +21,12 @@ docker compose -f deploy/compose.yaml --env-file deploy/.env up --build
 | URL | 用途 |
 | --- | --- |
 | http://localhost:8090 | media API |
-| http://localhost:8091 | MinIO console |
+| http://localhost:3900 | Garage S3 API |
 | http://localhost:3004 | マイドライブ UI |
 
 ローカルデモでは UI が `X-Dev-User-Sub` ヘッダでユーザーを切り替えます。IdP 連携は `OIDC_ISSUER` を API に渡すと Bearer JWT を JWKS 検証します（P01）。
 
-Compose では API に `extra_hosts: localhost:host-gateway` を付け、presign URL のホスト（`localhost:9000`）と MinIO 署名が一致するようにしています。
+Compose では API に `extra_hosts: localhost:host-gateway` を付け、presign URL のホスト（`localhost:3900`）と Garage 署名が一致するようにしています。S3 クライアントは path-style アクセスを使います（Garage 要件）。
 
 ## デモ手順
 

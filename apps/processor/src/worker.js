@@ -8,12 +8,30 @@ const token = process.env.MEDIA_PROCESSOR_TOKEN || "";
 const group = "processor";
 const consumer = process.env.HOSTNAME || "worker-1";
 
-const minio = new Minio.Client({
-  endPoint: process.env.MEDIA_MINIO_ENDPOINT?.split(":")[0] || "minio",
-  port: Number(process.env.MEDIA_MINIO_ENDPOINT?.split(":")[1] || 9000),
-  useSSL: process.env.MEDIA_MINIO_USE_SSL === "true",
-  accessKey: process.env.MEDIA_MINIO_ACCESS_KEY || "minio",
-  secretKey: process.env.MEDIA_MINIO_SECRET_KEY || "minio12345",
+function s3Endpoint() {
+  const raw =
+    process.env.MEDIA_S3_ENDPOINT ||
+    process.env.MEDIA_MINIO_ENDPOINT ||
+    "garage:3900";
+  const [host, port] = raw.split(":");
+  return { host, port: Number(port || 3900) };
+}
+
+const { host, port } = s3Endpoint();
+const s3 = new Minio.Client({
+  endPoint: host,
+  port,
+  useSSL: process.env.MEDIA_S3_USE_SSL === "true" || process.env.MEDIA_MINIO_USE_SSL === "true",
+  accessKey:
+    process.env.MEDIA_S3_ACCESS_KEY ||
+    process.env.MEDIA_MINIO_ACCESS_KEY ||
+    "GKdevmedia00000001",
+  secretKey:
+    process.env.MEDIA_S3_SECRET_KEY ||
+    process.env.MEDIA_MINIO_SECRET_KEY ||
+    "dev-media-secret-key-for-local-compose-demo",
+  region: process.env.MEDIA_S3_REGION || "garage",
+  pathStyle: true,
 });
 
 async function finishJob(jobId, variants, error) {
@@ -39,7 +57,7 @@ function variantKey(objectKey, name) {
 async function handle(msg) {
   const { jobId, fileId, objectKey, bucket } = msg;
   try {
-    const stream = await minio.getObject(bucket, objectKey);
+    const stream = await s3.getObject(bucket, objectKey);
     const chunks = [];
     for await (const c of stream) chunks.push(c);
     const buffer = Buffer.concat(chunks);
@@ -48,7 +66,7 @@ async function handle(msg) {
     const variants = {};
     for (const [name, v] of Object.entries(out)) {
       const key = variantKey(objectKey, name);
-      await minio.putObject(bucket, key, v.body, v.body.length, {
+      await s3.putObject(bucket, key, v.body, v.body.length, {
         "Content-Type": v.contentType,
       });
       variants[name] = { key, contentType: v.contentType };
