@@ -393,6 +393,10 @@ func (m *Media) GetQuota(ctx context.Context, ownerSub string) (QuotaView, error
 
 func (m *Media) DeleteFile(ctx context.Context, ownerSub, fileID string) error {
 	f, err := m.store.GetFile(ctx, fileID)
+	if errors.Is(err, domain.ErrNotFound) {
+		// Next の server action が二重に飛ぶことがある。既に消えていれば成功と同じ。
+		return nil
+	}
 	if err != nil {
 		return err
 	}

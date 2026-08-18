@@ -373,4 +373,7 @@ func TestDeleteFileReclaimsQuotaAndObjects(t *testing.T) {
 	if _, err := store.GetFile(context.Background(), fileID); !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("file still stored: %v", err)
 	}
+	if err := svc.DeleteFile(context.Background(), "owner", fileID); err != nil {
+		t.Fatalf("second delete: %v", err)
+	}
 }

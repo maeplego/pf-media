@@ -91,6 +91,8 @@ services:
       context: ../apps/web
     environment:
       MEDIA_API_URL: http://api:8090
+    extra_hosts:
+      - "localhost:host-gateway"
     ports:
       - "3004:3004"
     depends_on:

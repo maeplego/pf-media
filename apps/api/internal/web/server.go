@@ -171,7 +171,8 @@ func (s *Server) deleteFile(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+	// 204 は Next の server action が空ボディを JSON として読んで落ちることがある。
+	writeJSON(w, http.StatusOK, map[string]any{"deleted": true})
 }
 
 func (s *Server) createShare(w http.ResponseWriter, r *http.Request) {

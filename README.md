@@ -26,7 +26,14 @@ docker compose -f deploy/compose.yaml --env-file deploy/.env up --build
 
 ローカルデモでは UI が `X-Dev-User-Sub` ヘッダでユーザーを切り替えます。IdP 連携は `OIDC_ISSUER` を API に渡すと Bearer JWT を JWKS 検証します（P01）。
 
-Compose では API に `extra_hosts: localhost:host-gateway` を付け、presign URL のホスト（`localhost:3900`）と Garage 署名が一致するようにしています。S3 クライアントは path-style アクセスを使います（Garage 要件）。
+Compose では API と web に `extra_hosts: localhost:host-gateway` を付けています。presign URL のホスト（`localhost:3900`）と Garage 署名を揃え、ドライブ UI からの PUT がコンテナ内の `localhost` ではなくホスト上の Garage に届くようにするためです。S3 クライアントは path-style アクセスを使います（Garage 要件）。
+
+## テスト
+
+```powershell
+go test ./...   # apps/api。単体 + HTTP 統合。Compose 起動中は e2e も実行
+npm test        # apps/processor
+```
 
 ## デモ手順
 
