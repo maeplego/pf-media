@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: processor
+  labels:
+    app: media-processor
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: media-processor
+  template:
+    metadata:
+      labels:
+        app: media-processor
+    spec:
+      containers:
+        - name: processor
+          image: pf-media-processor:latest
+          env:
+            - name: MEDIA_S3_REGION
+              value: garage
+            - name: MEDIA_S3_ACCESS_KEY
+              value: GKdevmedia00000001
+            - name: MEDIA_S3_SECRET_KEY
+              value: dev-media-secret-key-for-local-k8s-demo
+            - name: MEDIA_PROCESSOR_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: p03-secrets
+                  key: MEDIA_PROCESSOR_TOKEN

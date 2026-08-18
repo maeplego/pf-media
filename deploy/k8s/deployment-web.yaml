@@ -1,0 +1,27 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  labels:
+    app: media-web
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: media-web
+  template:
+    metadata:
+      labels:
+        app: media-web
+    spec:
+      containers:
+        - name: web
+          image: pf-media-web:latest
+          ports:
+            - containerPort: 3004
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 3004
+            initialDelaySeconds: 10
+            periodSeconds: 5
