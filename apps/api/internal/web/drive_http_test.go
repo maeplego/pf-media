@@ -15,7 +15,13 @@ import (
 
 func driveHandler() http.Handler {
 	store := mem.New()
-	svc := service.NewMedia(store, stubObjects{}, nil, 10_000, 5000, time.Minute)
+	svc := service.NewMedia(store, pngStub(), nil, 10_000, 5000, time.Minute)
+	return New(svc).Routes(auth.New(true, "", "", ""), "processor-token")
+}
+
+func driveHandlerWithObjects(objs service.ObjectStore) http.Handler {
+	store := mem.New()
+	svc := service.NewMedia(store, objs, nil, 10_000, 5000, time.Minute)
 	return New(svc).Routes(auth.New(true, "", "", ""), "processor-token")
 }
 
@@ -249,5 +255,34 @@ func TestDeleteFolderHTTP(t *testing.T) {
 	}
 	if len(after.Files) != 0 || after.Quota.UsedBytes != 0 {
 		t.Fatalf("content left files=%d quota=%d", len(after.Files), after.Quota.UsedBytes)
+	}
+}
+
+func TestPDFUploadHTTP(t *testing.T) {
+	h := driveHandlerWithObjects(stubObjects{head: []byte("%PDF-1.4\n")})
+	rec := doJSON(t, h, http.MethodPost, "/v1/uploads/presign", "owner", `{"contentType":"application/pdf","size":64,"purpose":"drive"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("presign %d %s", rec.Code, rec.Body.String())
+	}
+	var presign struct {
+		FileID string `json:"fileId"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &presign); err != nil {
+		t.Fatal(err)
+	}
+	rec = doJSON(t, h, http.MethodPost, "/v1/uploads/complete", "owner", `{"fileId":"`+presign.FileID+`","etag":"etag"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("complete %d %s", rec.Code, rec.Body.String())
+	}
+	var file struct {
+		Status      string `json:"status"`
+		JobID       string `json:"jobId"`
+		ContentType string `json:"contentType"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &file); err != nil {
+		t.Fatal(err)
+	}
+	if file.Status != "ready" || file.JobID != "" || file.ContentType != "application/pdf" {
+		t.Fatalf("file %+v", file)
 	}
 }

@@ -76,5 +76,5 @@ npm test        # apps/processor
 
 - 最大 20MB は presign / complete で HTTP 413
 - 画像 4000px 超・非画像マジックバイトは processor が拒否し、失敗ジョブは Redis の `media:jobs:dlq` に残る
-- MIME: `image/jpeg`, `image/png`, `image/webp`, `image/gif` のみ（デモ）
+- MIME: 画像（jpeg/png/webp/gif）と `application/pdf` / `application/zip` / `text/plain`。complete 時に先頭バイトで検証。非画像は processor をスキップし `ready` + 原画 URL
 - ユーザークォータ既定 100MB

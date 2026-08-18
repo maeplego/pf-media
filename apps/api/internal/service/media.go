@@ -20,6 +20,7 @@ type ObjectStore interface {
 	PresignPut(ctx context.Context, key, contentType string, ttl time.Duration) (string, error)
 	PresignGet(ctx context.Context, key string, ttl time.Duration) (string, error)
 	Stat(ctx context.Context, key string) (int64, string, error)
+	ReadHead(ctx context.Context, key string, max int) ([]byte, error)
 	Delete(ctx context.Context, key string) error
 	DeletePrefix(ctx context.Context, prefix string) error
 	Bucket() string
@@ -145,7 +146,7 @@ func (m *Media) Presign(ctx context.Context, ownerSub string, in PresignInput) (
 	if in.Size > m.maxUpload {
 		return PresignResult{}, domain.ErrTooLarge
 	}
-	if !mimeutil.AllowedImage(in.ContentType) {
+	if !mimeutil.AllowedUpload(in.ContentType) {
 		return PresignResult{}, domain.ErrInvalid
 	}
 	if in.Purpose == "" {
@@ -203,6 +204,16 @@ func (m *Media) Complete(ctx context.Context, ownerSub, fileID, etag string) (Fi
 	if size > m.maxUpload {
 		_ = m.objects.Delete(ctx, f.ObjectKey)
 		return FileView{}, domain.ErrTooLarge
+	}
+	head, err := m.objects.ReadHead(ctx, f.ObjectKey, 512)
+	if err != nil {
+		_ = m.objects.Delete(ctx, f.ObjectKey)
+		return FileView{}, domain.ErrInvalid
+	}
+	if !mimeutil.MatchesUpload(f.ContentType, head) {
+		_ = m.objects.Delete(ctx, f.ObjectKey)
+		_ = m.store.DeleteFile(ctx, fileID)
+		return FileView{}, domain.ErrInvalid
 	}
 	_ = etag
 	_ = gotETag

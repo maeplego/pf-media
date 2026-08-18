@@ -13,18 +13,38 @@ import (
 	mem "github.com/portfolio/pf-media/api/internal/store/memory"
 )
 
-type stubObjects struct{}
+type stubObjects struct {
+	head []byte
+}
 
-func (stubObjects) PresignPut(_ context.Context, key, _ string, _ time.Duration) (string, error) {
+func pngStub() stubObjects {
+	return stubObjects{head: []byte{0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a}}
+}
+
+func (s stubObjects) readHead(max int) []byte {
+	h := s.head
+	if len(h) == 0 {
+		h = pngStub().head
+	}
+	if max > 0 && len(h) > max {
+		return h[:max]
+	}
+	return h
+}
+
+func (s stubObjects) PresignPut(_ context.Context, key, _ string, _ time.Duration) (string, error) {
 	return "http://put/" + key, nil
 }
-func (stubObjects) PresignGet(_ context.Context, key string, _ time.Duration) (string, error) {
+func (s stubObjects) PresignGet(_ context.Context, key string, _ time.Duration) (string, error) {
 	return "http://get/" + key, nil
 }
-func (stubObjects) Stat(_ context.Context, _ string) (int64, string, error) { return 10, "etag", nil }
-func (stubObjects) Delete(_ context.Context, _ string) error                { return nil }
-func (stubObjects) DeletePrefix(_ context.Context, _ string) error          { return nil }
-func (stubObjects) Bucket() string                                          { return "media" }
+func (s stubObjects) Stat(_ context.Context, _ string) (int64, string, error) { return 10, "etag", nil }
+func (s stubObjects) ReadHead(_ context.Context, _ string, max int) ([]byte, error) {
+	return s.readHead(max), nil
+}
+func (s stubObjects) Delete(_ context.Context, _ string) error                { return nil }
+func (s stubObjects) DeletePrefix(_ context.Context, _ string) error          { return nil }
+func (s stubObjects) Bucket() string                                          { return "media" }
 
 func TestWriteErrTooLarge(t *testing.T) {
 	rec := httptest.NewRecorder()
@@ -55,7 +75,7 @@ func TestWriteShareErrPasswordRequired(t *testing.T) {
 
 func TestPublicShareDoesNotRequireLogin(t *testing.T) {
 	store := mem.New()
-	svc := service.NewMedia(store, stubObjects{}, nil, 10_000, 5000, time.Minute)
+	svc := service.NewMedia(store, pngStub(), nil, 10_000, 5000, time.Minute)
 	ctx := context.Background()
 	if err := store.CreatePendingFile(ctx, domain.File{
 		ID: "f1", OwnerSub: "owner", ObjectKey: "user/owner/f1/orig",

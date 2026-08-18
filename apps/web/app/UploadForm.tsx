@@ -30,7 +30,7 @@ export function UploadForm({ folderId, devUser }: { folderId: string; devUser?: 
   return (
     <form onSubmit={onSubmit}>
       {folderId ? <input type="hidden" name="folderId" value={folderId} /> : null}
-      <input type="file" name="file" accept="image/*" required disabled={busy} />
+      <input type="file" name="file" accept="image/*,application/pdf,application/zip,text/plain" required disabled={busy} />
       <button type="submit" disabled={busy}>
         {busy ? "送信中…" : "アップロード"}
       </button>

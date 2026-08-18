@@ -70,6 +70,23 @@ func (c *Client) Stat(ctx context.Context, key string) (int64, string, error) {
 	return info.Size, info.ETag, nil
 }
 
+func (c *Client) ReadHead(ctx context.Context, key string, max int) ([]byte, error) {
+	if max <= 0 {
+		max = 512
+	}
+	obj, err := c.mc.GetObject(ctx, c.bucket, key, minio.GetObjectOptions{})
+	if err != nil {
+		return nil, err
+	}
+	defer obj.Close()
+	buf := make([]byte, max)
+	n, err := obj.Read(buf)
+	if err != nil && n == 0 {
+		return nil, err
+	}
+	return buf[:n], nil
+}
+
 func (c *Client) Delete(ctx context.Context, key string) error {
 	return c.mc.RemoveObject(ctx, c.bucket, key, minio.RemoveObjectOptions{})
 }

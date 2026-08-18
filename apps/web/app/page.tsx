@@ -132,19 +132,27 @@ export default async function Page({
           </li>
         ))}
         {files.map((f) => {
-          const thumb = f.variants.thumb?.url || f.variants.orig?.url;
+          const thumb = f.variants.thumb?.url;
+          const download = f.variants.orig?.url;
+          const isImage = f.contentType.startsWith("image/");
           return (
             <li key={f.id} style={{ marginBottom: "1rem", borderBottom: "1px solid #ddd", paddingBottom: "1rem" }}>
               <div>
-                {f.id.slice(0, 8)}… — {f.status} ({formatBytes(f.sizeBytes || 0)})
+                {f.id.slice(0, 8)}… — {f.status} ({formatBytes(f.sizeBytes || 0)}) — {f.contentType}
                 {f.jobError ? ` (${f.jobError})` : ""}
               </div>
               {thumb ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={thumb} alt="" width={160} style={{ width: 160, height: "auto", marginTop: 8, background: "#eee" }} />
-              ) : (
+              ) : isImage ? (
                 <em>処理中… サムネは processor 完了後に出ます</em>
-              )}
+              ) : download ? (
+                <p style={{ marginTop: 8 }}>
+                  <a href={download} target="_blank" rel="noreferrer">
+                    ダウンロード
+                  </a>
+                </p>
+              ) : null}
               {f.status === "failed" && f.jobId ? (
                 <form action={retryDriveJob.bind(null, f.jobId, devUser)}>
                   <button type="submit">処理を再実行</button>

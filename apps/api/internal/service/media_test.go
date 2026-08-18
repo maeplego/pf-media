@@ -13,7 +13,17 @@ import (
 )
 
 type fakeObjects struct {
-	keys map[string]int64
+	keys  map[string]int64
+	heads map[string][]byte
+}
+
+func (f *fakeObjects) headFor(key string) []byte {
+	if f.heads != nil {
+		if h, ok := f.heads[key]; ok {
+			return h
+		}
+	}
+	return []byte{0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a}
 }
 
 func (f *fakeObjects) PresignPut(_ context.Context, key, _ string, _ time.Duration) (string, error) {
@@ -30,6 +40,14 @@ func (f *fakeObjects) PresignGet(_ context.Context, key string, _ time.Duration)
 
 func (f *fakeObjects) Stat(_ context.Context, key string) (int64, string, error) {
 	return f.keys[key], "etag", nil
+}
+
+func (f *fakeObjects) ReadHead(_ context.Context, key string, max int) ([]byte, error) {
+	h := f.headFor(key)
+	if max > 0 && len(h) > max {
+		h = h[:max]
+	}
+	return h, nil
 }
 
 func (f *fakeObjects) Delete(_ context.Context, key string) error {
@@ -487,5 +505,73 @@ func TestDeleteFolderRecursive(t *testing.T) {
 	files, err := svc.ListFiles(ctx, "owner", "", 50)
 	if err != nil || len(files) != 0 {
 		t.Fatalf("files left %+v %v", files, err)
+	}
+}
+
+func TestPresignRejectsUnsupportedMIME(t *testing.T) {
+	svc := NewMedia(mem.New(), &fakeObjects{}, nil, 10_000, 5000, time.Minute)
+	_, err := svc.Presign(context.Background(), "u", PresignInput{
+		ContentType: "video/mp4", Size: 10, Purpose: "drive",
+	})
+	if err != domain.ErrInvalid {
+		t.Fatalf("expected invalid, got %v", err)
+	}
+}
+
+func TestCompletePDFReadyNoJob(t *testing.T) {
+	store := mem.New()
+	objs := &fakeObjects{}
+	q := &failQueue{}
+	svc := NewMedia(store, objs, q, 10_000, 5000, time.Minute)
+	ctx := context.Background()
+	res, err := svc.Presign(ctx, "owner", PresignInput{
+		ContentType: "application/pdf",
+		Size:        128,
+		Purpose:     "drive",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if objs.heads == nil {
+		objs.heads = map[string][]byte{}
+	}
+	objs.keys[res.ObjectKey] = 128
+	objs.heads[res.ObjectKey] = []byte("%PDF-1.4\n")
+	view, err := svc.Complete(ctx, "owner", res.FileID, "etag")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Status != domain.FileReady {
+		t.Fatalf("expected ready, got %s", view.Status)
+	}
+	if view.JobID != "" {
+		t.Fatalf("unexpected job %s", view.JobID)
+	}
+	if q.n != 0 {
+		t.Fatalf("queue enqueue count %d", q.n)
+	}
+	if view.Variants["orig"].URL == "" {
+		t.Fatal("expected orig download url")
+	}
+}
+
+func TestCompleteRejectsMagicMismatch(t *testing.T) {
+	store := mem.New()
+	objs := &fakeObjects{}
+	svc := NewMedia(store, objs, nil, 10_000, 5000, time.Minute)
+	res, err := svc.Presign(context.Background(), "owner", PresignInput{
+		ContentType: "application/pdf", Size: 10, Purpose: "drive",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	objs.keys[res.ObjectKey] = 10
+	if objs.heads == nil {
+		objs.heads = map[string][]byte{}
+	}
+	objs.heads[res.ObjectKey] = []byte{0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a}
+	_, err = svc.Complete(context.Background(), "owner", res.FileID, "")
+	if err != domain.ErrInvalid {
+		t.Fatalf("expected invalid, got %v", err)
 	}
 }

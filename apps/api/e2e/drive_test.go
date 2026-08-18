@@ -191,6 +191,72 @@ func TestDrivePageShowsQuotaE2E(t *testing.T) {
 	}
 }
 
+func tinyPDF(t *testing.T) []byte {
+	t.Helper()
+	return []byte("%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n")
+}
+
+func TestPDFUploadE2E(t *testing.T) {
+	skipUnlessUp(t)
+	sub := fmt.Sprintf("e2e-pdf-%d", time.Now().UnixNano())
+	pdfBytes := tinyPDF(t)
+
+	code, body := apiJSON(t, http.MethodPost, "/v1/uploads/presign", sub, map[string]any{
+		"contentType": "application/pdf",
+		"size":        len(pdfBytes),
+		"purpose":     "drive",
+	})
+	if code != http.StatusOK {
+		t.Fatalf("presign %d %s", code, body)
+	}
+	var presign struct {
+		FileID    string `json:"fileId"`
+		UploadURL string `json:"uploadUrl"`
+	}
+	if err := json.Unmarshal(body, &presign); err != nil {
+		t.Fatal(err)
+	}
+
+	put, err := http.NewRequest(http.MethodPut, presign.UploadURL, bytes.NewReader(pdfBytes))
+	if err != nil {
+		t.Fatal(err)
+	}
+	put.Header.Set("Content-Type", "application/pdf")
+	putRes, err := (&http.Client{Timeout: 15 * time.Second}).Do(put)
+	if err != nil {
+		t.Fatal(err)
+	}
+	putRes.Body.Close()
+	if putRes.StatusCode/100 != 2 {
+		t.Fatalf("garage put %d", putRes.StatusCode)
+	}
+
+	code, body = apiJSON(t, http.MethodPost, "/v1/uploads/complete", sub, map[string]any{
+		"fileId": presign.FileID,
+		"etag":   strings.Trim(putRes.Header.Get("Etag"), `"`),
+	})
+	if code != http.StatusOK {
+		t.Fatalf("complete %d %s", code, body)
+	}
+	var file struct {
+		Status      string `json:"status"`
+		JobID       string `json:"jobId"`
+		ContentType string `json:"contentType"`
+		Variants    map[string]struct {
+			URL string `json:"url"`
+		} `json:"variants"`
+	}
+	if err := json.Unmarshal(body, &file); err != nil {
+		t.Fatal(err)
+	}
+	if file.Status != "ready" || file.JobID != "" {
+		t.Fatalf("file %+v", file)
+	}
+	if file.Variants["orig"].URL == "" {
+		t.Fatal("missing orig url")
+	}
+}
+
 func TestFolderDeleteE2E(t *testing.T) {
 	skipUnlessUp(t)
 	sub := fmt.Sprintf("e2e-folder-%d", time.Now().UnixNano())
