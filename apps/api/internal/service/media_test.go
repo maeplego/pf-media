@@ -173,7 +173,7 @@ func TestCreateShareLinkForbidden(t *testing.T) {
 	objs := &fakeObjects{}
 	svc := NewMedia(store, objs, nil, 10_000, 5000, time.Minute)
 	fileID := completeOwnedPNG(t, svc, objs, "owner")
-	_, err := svc.CreateShareLink(context.Background(), "other", fileID, time.Hour)
+	_, err := svc.CreateShareLink(context.Background(), "other", fileID, time.Hour, "")
 	if err != domain.ErrForbidden {
 		t.Fatalf("expected forbidden, got %v", err)
 	}
@@ -185,7 +185,7 @@ func TestShareLinkResolveAndExpiry(t *testing.T) {
 	svc := NewMedia(store, objs, nil, 10_000, 5000, time.Minute)
 	fileID := completeOwnedPNG(t, svc, objs, "owner")
 
-	link, err := svc.CreateShareLink(context.Background(), "owner", fileID, time.Hour)
+	link, err := svc.CreateShareLink(context.Background(), "owner", fileID, time.Hour, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -193,7 +193,7 @@ func TestShareLinkResolveAndExpiry(t *testing.T) {
 		t.Fatalf("token too short: %s", link.Token)
 	}
 
-	pub, err := svc.ResolveShare(context.Background(), link.Token)
+	pub, err := svc.ResolveShare(context.Background(), link.Token, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -212,7 +212,7 @@ func TestShareLinkResolveAndExpiry(t *testing.T) {
 	if err := store.CreateShareLink(context.Background(), expired); err != nil {
 		t.Fatal(err)
 	}
-	_, err = svc.ResolveShare(context.Background(), expired.Token)
+	_, err = svc.ResolveShare(context.Background(), expired.Token, "")
 	if err != domain.ErrExpired {
 		t.Fatalf("expected expired, got %v", err)
 	}
@@ -223,15 +223,44 @@ func TestShareDownloadURL(t *testing.T) {
 	objs := &fakeObjects{}
 	svc := NewMedia(store, objs, nil, 10_000, 5000, time.Minute)
 	fileID := completeOwnedPNG(t, svc, objs, "owner")
-	link, err := svc.CreateShareLink(context.Background(), "owner", fileID, time.Minute)
+	link, err := svc.CreateShareLink(context.Background(), "owner", fileID, time.Minute, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	url, err := svc.ShareDownloadURL(context.Background(), link.Token, "orig")
+	url, err := svc.ShareDownloadURL(context.Background(), link.Token, "orig", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if url == "" {
 		t.Fatal("empty download url")
+	}
+}
+
+func TestShareLinkPassword(t *testing.T) {
+	store := mem.New()
+	objs := &fakeObjects{}
+	svc := NewMedia(store, objs, nil, 10_000, 5000, time.Minute)
+	fileID := completeOwnedPNG(t, svc, objs, "owner")
+	link, err := svc.CreateShareLink(context.Background(), "owner", fileID, time.Hour, "s3cret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !link.PasswordSet {
+		t.Fatal("expected passwordSet")
+	}
+	_, err = svc.ResolveShare(context.Background(), link.Token, "")
+	if err != domain.ErrPasswordRequired {
+		t.Fatalf("expected password required, got %v", err)
+	}
+	_, err = svc.ResolveShare(context.Background(), link.Token, "nope")
+	if err != domain.ErrForbidden {
+		t.Fatalf("expected forbidden, got %v", err)
+	}
+	pub, err := svc.ResolveShare(context.Background(), link.Token, "s3cret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pub.Variants["orig"].URL == "" {
+		t.Fatal("expected variants after correct password")
 	}
 }

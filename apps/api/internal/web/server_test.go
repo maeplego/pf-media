@@ -41,6 +41,17 @@ func TestWriteErrExpired(t *testing.T) {
 	}
 }
 
+func TestWriteShareErrPasswordRequired(t *testing.T) {
+	rec := httptest.NewRecorder()
+	writeShareErr(rec, domain.ErrPasswordRequired)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status %d", rec.Code)
+	}
+	if rec.Body.String() == "" || rec.Header().Get("Content-Type") != "application/json" {
+		t.Fatalf("body %q", rec.Body.String())
+	}
+}
+
 func TestPublicShareDoesNotRequireLogin(t *testing.T) {
 	store := mem.New()
 	svc := service.NewMedia(store, stubObjects{}, nil, 10_000, 5000, time.Minute)
@@ -52,7 +63,7 @@ func TestPublicShareDoesNotRequireLogin(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	link, err := svc.CreateShareLink(ctx, "owner", "f1", time.Hour)
+	link, err := svc.CreateShareLink(ctx, "owner", "f1", time.Hour, "")
 	if err != nil {
 		t.Fatal(err)
 	}

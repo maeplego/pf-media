@@ -53,11 +53,11 @@ async function uploadFile(sub: string, file: File) {
   });
 }
 
-async function createShare(sub: string, fileId: string, expiresInSeconds: number) {
+async function createShare(sub: string, fileId: string, expiresInSeconds: number, password: string) {
   "use server";
   const data = await apiFetch("/v1/share-links", sub, {
     method: "POST",
-    body: JSON.stringify({ fileId, expiresInSeconds }),
+    body: JSON.stringify({ fileId, expiresInSeconds, password }),
   });
   redirect(`/s/${data.token}`);
 }
@@ -100,12 +100,19 @@ export default async function Page({
               ) : (
                 <em>処理中…</em>
               )}
-              <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
-                <form action={async () => { "use server"; await createShare(user, f.id, 3600); }}>
-                  <button type="submit">1時間共有</button>
-                </form>
-                <form action={async () => { "use server"; await createShare(user, f.id, 60); }}>
-                  <button type="submit">1分で期限切れ</button>
+              <div style={{ marginTop: 8 }}>
+                <form
+                  action={async (fd) => {
+                    "use server";
+                    const pw = String(fd.get("password") || "");
+                    const ttl = Number(fd.get("ttl") || 3600);
+                    await createShare(user, f.id, ttl, pw);
+                  }}
+                  style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}
+                >
+                  <input type="password" name="password" placeholder="パスワード（任意）" autoComplete="new-password" />
+                  <button type="submit" name="ttl" value="3600">1時間共有</button>
+                  <button type="submit" name="ttl" value="60">1分で期限切れ</button>
                 </form>
               </div>
             </li>

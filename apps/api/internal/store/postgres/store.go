@@ -199,18 +199,18 @@ func (s *Store) GetQuotaUsed(ctx context.Context, ownerSub string) (int64, error
 
 func (s *Store) CreateShareLink(ctx context.Context, l domain.ShareLink) error {
 	_, err := s.pool.Exec(ctx, `
-		INSERT INTO share_links (id, token, file_id, owner_sub, expires_at, created_at)
-		VALUES ($1,$2,$3,$4,$5,$6)`,
-		l.ID, l.Token, l.FileID, l.OwnerSub, l.ExpiresAt.UTC(), l.CreatedAt.UTC())
+		INSERT INTO share_links (id, token, file_id, owner_sub, password_hash, expires_at, created_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+		l.ID, l.Token, l.FileID, l.OwnerSub, l.PasswordHash, l.ExpiresAt.UTC(), l.CreatedAt.UTC())
 	return err
 }
 
 func (s *Store) GetShareLinkByToken(ctx context.Context, token string) (domain.ShareLink, error) {
 	row := s.pool.QueryRow(ctx, `
-		SELECT id, token, file_id, owner_sub, expires_at, created_at
+		SELECT id, token, file_id, owner_sub, password_hash, expires_at, created_at
 		FROM share_links WHERE token = $1`, token)
 	var l domain.ShareLink
-	if err := row.Scan(&l.ID, &l.Token, &l.FileID, &l.OwnerSub, &l.ExpiresAt, &l.CreatedAt); err != nil {
+	if err := row.Scan(&l.ID, &l.Token, &l.FileID, &l.OwnerSub, &l.PasswordHash, &l.ExpiresAt, &l.CreatedAt); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return domain.ShareLink{}, domain.ErrNotFound
 		}

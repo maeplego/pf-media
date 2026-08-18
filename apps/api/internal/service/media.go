@@ -9,6 +9,7 @@ import (
 	"github.com/portfolio/pf-media/api/internal/id"
 	"github.com/portfolio/pf-media/api/internal/mimeutil"
 	"github.com/portfolio/pf-media/api/internal/objectstore"
+	"github.com/portfolio/pf-media/api/internal/password"
 	"github.com/portfolio/pf-media/api/internal/queue"
 	"github.com/portfolio/pf-media/api/internal/sharetoken"
 )
@@ -72,8 +73,9 @@ type FileView struct {
 }
 
 type ShareLinkView struct {
-	Token     string    `json:"token"`
-	ExpiresAt time.Time `json:"expiresAt"`
+	Token       string    `json:"token"`
+	ExpiresAt   time.Time `json:"expiresAt"`
+	PasswordSet bool      `json:"passwordSet"`
 }
 
 type PublicFile struct {
@@ -219,11 +221,14 @@ const (
 	maxShareTTL     = 7 * 24 * time.Hour
 )
 
-func (m *Media) CreateShareLink(ctx context.Context, ownerSub, fileID string, ttl time.Duration) (ShareLinkView, error) {
+func (m *Media) CreateShareLink(ctx context.Context, ownerSub, fileID string, ttl time.Duration, passwordPlain string) (ShareLinkView, error) {
 	if ttl <= 0 {
 		ttl = defaultShareTTL
 	}
 	if ttl > maxShareTTL {
+		return ShareLinkView{}, domain.ErrInvalid
+	}
+	if len(passwordPlain) > 128 {
 		return ShareLinkView{}, domain.ErrInvalid
 	}
 	f, err := m.store.GetFile(ctx, fileID)
@@ -240,22 +245,47 @@ func (m *Media) CreateShareLink(ctx context.Context, ownerSub, fileID string, tt
 	if err != nil {
 		return ShareLinkView{}, err
 	}
+	hash := ""
+	if passwordPlain != "" {
+		hash, err = password.Hash(passwordPlain)
+		if err != nil {
+			return ShareLinkView{}, err
+		}
+	}
 	now := time.Now().UTC()
 	link := domain.ShareLink{
-		ID:        id.New(),
-		Token:     token,
-		FileID:    fileID,
-		OwnerSub:  ownerSub,
-		ExpiresAt: now.Add(ttl),
-		CreatedAt: now,
+		ID:           id.New(),
+		Token:        token,
+		FileID:       fileID,
+		OwnerSub:     ownerSub,
+		PasswordHash: hash,
+		ExpiresAt:    now.Add(ttl),
+		CreatedAt:    now,
 	}
 	if err := m.store.CreateShareLink(ctx, link); err != nil {
 		return ShareLinkView{}, err
 	}
-	return ShareLinkView{Token: token, ExpiresAt: link.ExpiresAt}, nil
+	return ShareLinkView{Token: token, ExpiresAt: link.ExpiresAt, PasswordSet: hash != ""}, nil
 }
 
-func (m *Media) ResolveShare(ctx context.Context, token string) (PublicFile, error) {
+func sharePasswordOK(link domain.ShareLink, provided string) error {
+	if link.PasswordHash == "" {
+		return nil
+	}
+	if provided == "" {
+		return domain.ErrPasswordRequired
+	}
+	ok, err := password.Verify(provided, link.PasswordHash)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return domain.ErrForbidden
+	}
+	return nil
+}
+
+func (m *Media) ResolveShare(ctx context.Context, token, passwordPlain string) (PublicFile, error) {
 	if token == "" {
 		return PublicFile{}, domain.ErrNotFound
 	}
@@ -265,6 +295,9 @@ func (m *Media) ResolveShare(ctx context.Context, token string) (PublicFile, err
 	}
 	if !time.Now().UTC().Before(link.ExpiresAt) {
 		return PublicFile{}, domain.ErrExpired
+	}
+	if err := sharePasswordOK(link, passwordPlain); err != nil {
+		return PublicFile{}, err
 	}
 	f, err := m.store.GetFile(ctx, link.FileID)
 	if err != nil {
@@ -282,8 +315,8 @@ func (m *Media) ResolveShare(ctx context.Context, token string) (PublicFile, err
 	}, nil
 }
 
-func (m *Media) ShareDownloadURL(ctx context.Context, token, variant string) (string, error) {
-	pub, err := m.ResolveShare(ctx, token)
+func (m *Media) ShareDownloadURL(ctx context.Context, token, variant, passwordPlain string) (string, error) {
+	pub, err := m.ResolveShare(ctx, token, passwordPlain)
 	if err != nil {
 		return "", err
 	}

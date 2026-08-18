@@ -138,13 +138,14 @@ func (s *Server) createShare(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		FileID           string `json:"fileId"`
 		ExpiresInSeconds int64  `json:"expiresInSeconds"`
+		Password         string `json:"password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
 	ttl := time.Duration(body.ExpiresInSeconds) * time.Second
-	res, err := s.media.CreateShareLink(r.Context(), u.Sub, body.FileID, ttl)
+	res, err := s.media.CreateShareLink(r.Context(), u.Sub, body.FileID, ttl, body.Password)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -152,11 +153,15 @@ func (s *Server) createShare(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, res)
 }
 
+func sharePassword(r *http.Request) string {
+	return strings.TrimSpace(r.Header.Get("X-Share-Password"))
+}
+
 func (s *Server) getShare(w http.ResponseWriter, r *http.Request) {
 	token := r.PathValue("token")
-	res, err := s.media.ResolveShare(r.Context(), token)
+	res, err := s.media.ResolveShare(r.Context(), token, sharePassword(r))
 	if err != nil {
-		writeErr(w, err)
+		writeShareErr(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, res)
@@ -164,9 +169,9 @@ func (s *Server) getShare(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) downloadShare(w http.ResponseWriter, r *http.Request) {
 	token := r.PathValue("token")
-	url, err := s.media.ShareDownloadURL(r.Context(), token, r.URL.Query().Get("variant"))
+	url, err := s.media.ShareDownloadURL(r.Context(), token, r.URL.Query().Get("variant"), sharePassword(r))
 	if err != nil {
-		writeErr(w, err)
+		writeShareErr(w, err)
 		return
 	}
 	http.Redirect(w, r, url, http.StatusFound)
@@ -218,7 +223,17 @@ func writeErr(w http.ResponseWriter, err error) {
 		http.Error(w, "conflict", http.StatusConflict)
 	case errors.Is(err, domain.ErrExpired):
 		http.Error(w, "expired", http.StatusGone)
+	case errors.Is(err, domain.ErrPasswordRequired):
+		http.Error(w, "password required", http.StatusUnauthorized)
 	default:
 		http.Error(w, "internal error", http.StatusInternalServerError)
 	}
+}
+
+func writeShareErr(w http.ResponseWriter, err error) {
+	if errors.Is(err, domain.ErrPasswordRequired) {
+		writeJSON(w, http.StatusUnauthorized, map[string]any{"passwordRequired": true})
+		return
+	}
+	writeErr(w, err)
 }

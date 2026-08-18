@@ -9,13 +9,14 @@ import (
 )
 
 var (
-	ErrNotFound  = errors.New("not found")
-	ErrForbidden = errors.New("forbidden")
-	ErrConflict  = errors.New("conflict")
-	ErrQuota     = errors.New("quota exceeded")
-	ErrInvalid   = errors.New("invalid")
-	ErrTooLarge  = errors.New("too large")
-	ErrExpired   = errors.New("expired")
+	ErrNotFound         = errors.New("not found")
+	ErrForbidden        = errors.New("forbidden")
+	ErrConflict         = errors.New("conflict")
+	ErrQuota            = errors.New("quota exceeded")
+	ErrInvalid          = errors.New("invalid")
+	ErrTooLarge         = errors.New("too large")
+	ErrExpired          = errors.New("expired")
+	ErrPasswordRequired = errors.New("password required")
 )
 
 type FileStatus string
@@ -63,12 +64,13 @@ type Job struct {
 }
 
 type ShareLink struct {
-	ID        string
-	Token     string
-	FileID    string
-	OwnerSub  string
-	ExpiresAt time.Time
-	CreatedAt time.Time
+	ID           string
+	Token        string
+	FileID       string
+	OwnerSub     string
+	PasswordHash string
+	ExpiresAt    time.Time
+	CreatedAt    time.Time
 }
 
 func (v Variants) JSON() json.RawMessage {
