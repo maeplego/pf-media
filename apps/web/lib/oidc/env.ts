@@ -38,3 +38,21 @@ export function postLogoutRedirectUri(): string {
   }
   return redirectUri().replace(/\/callback$/, "/logged-out");
 }
+
+// Browser-facing origin. K8s sets HOSTNAME to the pod name, so req.nextUrl.origin is unusable.
+export function publicOrigin(req: { headers: Headers; nextUrl: URL; url: string }): string {
+  const redirect = process.env.OIDC_REDIRECT_URI?.trim();
+  if (redirect) {
+    try {
+      return new URL(redirect).origin;
+    } catch {
+      // fall through to forwarded headers
+    }
+  }
+  const host = req.headers.get("x-forwarded-host") || req.headers.get("host");
+  if (host) {
+    const proto = req.headers.get("x-forwarded-proto") || "http";
+    return `${proto.split(",")[0].trim()}://${host.split(",")[0].trim()}`;
+  }
+  return req.nextUrl.origin;
+}

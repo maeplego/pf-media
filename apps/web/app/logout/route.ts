@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { readCookie, setOn } from "../../lib/oidc/cookies";
-import { clientId, issuer, oidcEnabled, postLogoutRedirectUri } from "../../lib/oidc/env";
+import { clientId, issuer, oidcEnabled, postLogoutRedirectUri, publicOrigin } from "../../lib/oidc/env";
 import { randomString } from "../../lib/oidc/pkce";
 
 export async function POST(req: NextRequest) {
   if (!oidcEnabled()) {
-    return NextResponse.redirect(new URL("/", req.url), { status: 303 });
+    return NextResponse.redirect(new URL("/", publicOrigin(req)), { status: 303 });
   }
   const idToken = await readCookie("rp_id");
   const state = randomString(16);

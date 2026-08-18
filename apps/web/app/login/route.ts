@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { setOn } from "../../lib/oidc/cookies";
-import { clientId, issuer, oidcEnabled, redirectUri } from "../../lib/oidc/env";
+import { clientId, issuer, oidcEnabled, publicOrigin, redirectUri } from "../../lib/oidc/env";
 import { randomString, s256 } from "../../lib/oidc/pkce";
 
 export async function GET(req: NextRequest) {
   if (!oidcEnabled()) {
-    return NextResponse.redirect(new URL("/", req.url));
+    return NextResponse.redirect(new URL("/", publicOrigin(req)));
   }
   const state = randomString(16);
   const nonce = randomString(16);

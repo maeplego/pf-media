@@ -46,7 +46,7 @@ export async function apiFetchForPage(path: string, devUser?: string) {
   return apiFetch(path, session);
 }
 
-/** PUT は署名 URL（localhost:3900）へ。web コンテナは extra_hosts でホストの Garage に届ける。 */
+/** PUT は署名 URL（Compose は localhost:3900、連携 K8s は garage.localhost）へ。 */
 export async function uploadDriveFile(formData: FormData, devUser?: string): Promise<string | null> {
   const session = await requireDriveSession(devUser);
   const file = formData.get("file");
