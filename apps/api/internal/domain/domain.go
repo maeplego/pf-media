@@ -15,6 +15,7 @@ var (
 	ErrQuota     = errors.New("quota exceeded")
 	ErrInvalid   = errors.New("invalid")
 	ErrTooLarge  = errors.New("too large")
+	ErrExpired   = errors.New("expired")
 )
 
 type FileStatus string
@@ -61,6 +62,15 @@ type Job struct {
 	UpdatedAt time.Time
 }
 
+type ShareLink struct {
+	ID        string
+	Token     string
+	FileID    string
+	OwnerSub  string
+	ExpiresAt time.Time
+	CreatedAt time.Time
+}
+
 func (v Variants) JSON() json.RawMessage {
 	if v == nil {
 		return json.RawMessage(`{}`)
@@ -93,4 +103,6 @@ type Store interface {
 	UpdateJob(ctx context.Context, id string, status JobStatus, errMsg string) error
 	AddQuota(ctx context.Context, ownerSub string, delta int64, limit int64) error
 	GetQuotaUsed(ctx context.Context, ownerSub string) (int64, error)
+	CreateShareLink(ctx context.Context, l ShareLink) error
+	GetShareLinkByToken(ctx context.Context, token string) (ShareLink, error)
 }

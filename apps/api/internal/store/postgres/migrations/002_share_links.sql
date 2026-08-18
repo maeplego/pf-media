@@ -1,0 +1,8 @@
+CREATE TABLE IF NOT EXISTS share_links (
+  id TEXT PRIMARY KEY,
+  token TEXT NOT NULL UNIQUE,
+  file_id TEXT NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+  owner_sub TEXT NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);

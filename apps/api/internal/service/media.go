@@ -10,6 +10,7 @@ import (
 	"github.com/portfolio/pf-media/api/internal/mimeutil"
 	"github.com/portfolio/pf-media/api/internal/objectstore"
 	"github.com/portfolio/pf-media/api/internal/queue"
+	"github.com/portfolio/pf-media/api/internal/sharetoken"
 )
 
 type ObjectStore interface {
@@ -61,13 +62,25 @@ type PresignResult struct {
 }
 
 type FileView struct {
-	ID          string                    `json:"id"`
-	ContentType string                    `json:"contentType"`
-	SizeBytes   int64                     `json:"sizeBytes"`
-	Purpose     string                    `json:"purpose"`
-	Status      domain.FileStatus         `json:"status"`
-	Variants    map[string]VariantView    `json:"variants"`
-	CreatedAt   time.Time                 `json:"createdAt"`
+	ID          string                 `json:"id"`
+	ContentType string                 `json:"contentType"`
+	SizeBytes   int64                  `json:"sizeBytes"`
+	Purpose     string                 `json:"purpose"`
+	Status      domain.FileStatus      `json:"status"`
+	Variants    map[string]VariantView `json:"variants"`
+	CreatedAt   time.Time              `json:"createdAt"`
+}
+
+type ShareLinkView struct {
+	Token     string    `json:"token"`
+	ExpiresAt time.Time `json:"expiresAt"`
+}
+
+type PublicFile struct {
+	ContentType string                 `json:"contentType"`
+	Status      domain.FileStatus      `json:"status"`
+	Variants    map[string]VariantView `json:"variants"`
+	ExpiresAt   time.Time              `json:"expiresAt"`
 }
 
 type VariantView struct {
@@ -201,6 +214,94 @@ func (m *Media) Complete(ctx context.Context, ownerSub, fileID, etag string) (Fi
 	return m.fileView(ctx, f)
 }
 
+const (
+	defaultShareTTL = time.Hour
+	maxShareTTL     = 7 * 24 * time.Hour
+)
+
+func (m *Media) CreateShareLink(ctx context.Context, ownerSub, fileID string, ttl time.Duration) (ShareLinkView, error) {
+	if ttl <= 0 {
+		ttl = defaultShareTTL
+	}
+	if ttl > maxShareTTL {
+		return ShareLinkView{}, domain.ErrInvalid
+	}
+	f, err := m.store.GetFile(ctx, fileID)
+	if err != nil {
+		return ShareLinkView{}, err
+	}
+	if f.OwnerSub != ownerSub {
+		return ShareLinkView{}, domain.ErrForbidden
+	}
+	if f.Status == domain.FileFailed {
+		return ShareLinkView{}, domain.ErrInvalid
+	}
+	token, err := sharetoken.New()
+	if err != nil {
+		return ShareLinkView{}, err
+	}
+	now := time.Now().UTC()
+	link := domain.ShareLink{
+		ID:        id.New(),
+		Token:     token,
+		FileID:    fileID,
+		OwnerSub:  ownerSub,
+		ExpiresAt: now.Add(ttl),
+		CreatedAt: now,
+	}
+	if err := m.store.CreateShareLink(ctx, link); err != nil {
+		return ShareLinkView{}, err
+	}
+	return ShareLinkView{Token: token, ExpiresAt: link.ExpiresAt}, nil
+}
+
+func (m *Media) ResolveShare(ctx context.Context, token string) (PublicFile, error) {
+	if token == "" {
+		return PublicFile{}, domain.ErrNotFound
+	}
+	link, err := m.store.GetShareLinkByToken(ctx, token)
+	if err != nil {
+		return PublicFile{}, err
+	}
+	if !time.Now().UTC().Before(link.ExpiresAt) {
+		return PublicFile{}, domain.ErrExpired
+	}
+	f, err := m.store.GetFile(ctx, link.FileID)
+	if err != nil {
+		return PublicFile{}, err
+	}
+	view, err := m.fileView(ctx, f)
+	if err != nil {
+		return PublicFile{}, err
+	}
+	return PublicFile{
+		ContentType: view.ContentType,
+		Status:      view.Status,
+		Variants:    view.Variants,
+		ExpiresAt:   link.ExpiresAt,
+	}, nil
+}
+
+func (m *Media) ShareDownloadURL(ctx context.Context, token, variant string) (string, error) {
+	pub, err := m.ResolveShare(ctx, token)
+	if err != nil {
+		return "", err
+	}
+	if variant == "" {
+		variant = "orig"
+	}
+	if v, ok := pub.Variants[variant]; ok {
+		return v.URL, nil
+	}
+	if v, ok := pub.Variants["orig"]; ok {
+		return v.URL, nil
+	}
+	for _, v := range pub.Variants {
+		return v.URL, nil
+	}
+	return "", domain.ErrNotFound
+}
+
 func (m *Media) GetFile(ctx context.Context, requesterSub, fileID string) (FileView, error) {
 	f, err := m.store.GetFile(ctx, fileID)
 	if err != nil {
@@ -257,7 +358,10 @@ func (m *Media) fileView(ctx context.Context, f domain.File) (FileView, error) {
 		Variants:    map[string]VariantView{},
 		CreatedAt:   f.CreatedAt,
 	}
-	if len(f.Variants) == 0 && f.Status == domain.FileReady {
+	if len(f.Variants) == 0 {
+		if f.Status == domain.FileFailed {
+			return view, nil
+		}
 		url, err := m.objects.PresignGet(ctx, f.ObjectKey, m.presignTTL)
 		if err != nil {
 			return FileView{}, err

@@ -32,13 +32,18 @@ Compose では API に `extra_hosts: localhost:host-gateway` を付け、presign
 
 1. http://localhost:3004 を開く（ユーザー A）
 2. 画像をアップロード → 数秒後サムネイル表示
-3. 別ユーザー B に切り替え、A のファイルが見えないことを確認
+3. 「1時間共有」で公開ページへ。URL をユーザー B（または別ブラウザ）で開く
+4. 「1分で期限切れ」のリンクは、期限後に 410 になる
+5. 別ユーザー B に切り替え、A のマイドライブ一覧には A のファイルが出ない
 
 ## 契約（他プロジェクト）
 
 - `POST /v1/uploads/presign` — `{ contentType, size, purpose }`
 - `POST /v1/uploads/complete` — `{ fileId, etag }`
 - `GET /v1/files/:id` — メタデータと派生 URL（署名付き GET）
+- `POST /v1/share-links` — `{ fileId, expiresInSeconds }`（所有者のみ）
+- `GET /v1/s/:token` — ログイン不要。期限切れは 410
+- `GET /v1/s/:token/download` — 署名付き GET へ 302
 
 `purpose`: `wiki`, `product`, `blog`, `chat`, `drive`
 

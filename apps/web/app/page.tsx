@@ -1,3 +1,5 @@
+import { redirect } from "next/navigation";
+
 const API = process.env.MEDIA_API_URL || "http://localhost:8090";
 
 type FileView = {
@@ -51,6 +53,15 @@ async function uploadFile(sub: string, file: File) {
   });
 }
 
+async function createShare(sub: string, fileId: string, expiresInSeconds: number) {
+  "use server";
+  const data = await apiFetch("/v1/share-links", sub, {
+    method: "POST",
+    body: JSON.stringify({ fileId, expiresInSeconds }),
+  });
+  redirect(`/s/${data.token}`);
+}
+
 export default async function Page({
   searchParams,
 }: {
@@ -89,12 +100,20 @@ export default async function Page({
               ) : (
                 <em>処理中…</em>
               )}
+              <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
+                <form action={async () => { "use server"; await createShare(user, f.id, 3600); }}>
+                  <button type="submit">1時間共有</button>
+                </form>
+                <form action={async () => { "use server"; await createShare(user, f.id, 60); }}>
+                  <button type="submit">1分で期限切れ</button>
+                </form>
+              </div>
             </li>
           );
         })}
       </ul>
       <p style={{ color: "#666", fontSize: 14 }}>
-        数秒後にリロードするとサムネイルが表示されます。
+        数秒後にリロードするとサムネイルが表示されます。共有 URL はログイン不要です。ユーザー B で開いても同じトークンなら見えます。
       </p>
     </div>
   );

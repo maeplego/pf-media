@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/portfolio/pf-media/api/internal/auth"
 	"github.com/portfolio/pf-media/api/internal/domain"
@@ -36,11 +37,15 @@ func (s *Server) Routes(mw *auth.Middleware, processorToken string) http.Handler
 			s.listFiles(w, r)
 		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/v1/files/"):
 			s.getFile(w, r)
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/share-links":
+			s.createShare(w, r)
 		default:
 			http.NotFound(w, r)
 		}
 	}))
 
+	mux.Handle("GET /v1/s/{token}", http.HandlerFunc(s.getShare))
+	mux.Handle("GET /v1/s/{token}/download", http.HandlerFunc(s.downloadShare))
 	mux.Handle("/v1/", user)
 	mux.Handle("POST /internal/v1/jobs/{id}/finish", auth.ProcessorToken(processorToken)(http.HandlerFunc(s.finishJob)))
 	return mux
@@ -124,6 +129,49 @@ func (s *Server) getFile(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, res)
 }
 
+func (s *Server) createShare(w http.ResponseWriter, r *http.Request) {
+	u, ok := auth.UserFrom(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	var body struct {
+		FileID           string `json:"fileId"`
+		ExpiresInSeconds int64  `json:"expiresInSeconds"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	ttl := time.Duration(body.ExpiresInSeconds) * time.Second
+	res, err := s.media.CreateShareLink(r.Context(), u.Sub, body.FileID, ttl)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+func (s *Server) getShare(w http.ResponseWriter, r *http.Request) {
+	token := r.PathValue("token")
+	res, err := s.media.ResolveShare(r.Context(), token)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+func (s *Server) downloadShare(w http.ResponseWriter, r *http.Request) {
+	token := r.PathValue("token")
+	url, err := s.media.ShareDownloadURL(r.Context(), token, r.URL.Query().Get("variant"))
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	http.Redirect(w, r, url, http.StatusFound)
+}
+
 func (s *Server) finishJob(w http.ResponseWriter, r *http.Request) {
 	jobID := r.PathValue("id")
 	var body struct {
@@ -168,6 +216,8 @@ func writeErr(w http.ResponseWriter, err error) {
 		http.Error(w, "too large", http.StatusRequestEntityTooLarge)
 	case errors.Is(err, domain.ErrConflict):
 		http.Error(w, "conflict", http.StatusConflict)
+	case errors.Is(err, domain.ErrExpired):
+		http.Error(w, "expired", http.StatusGone)
 	default:
 		http.Error(w, "internal error", http.StatusInternalServerError)
 	}

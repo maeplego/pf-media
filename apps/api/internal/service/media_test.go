@@ -152,3 +152,86 @@ func TestCompleteEnqueueFailureMarksFailed(t *testing.T) {
 		t.Fatalf("expected failed, got %s", f.Status)
 	}
 }
+
+func completeOwnedPNG(t *testing.T, svc *Media, objs *fakeObjects, owner string) string {
+	t.Helper()
+	res, err := svc.Presign(context.Background(), owner, PresignInput{
+		ContentType: "image/png", Size: 10, Purpose: "drive",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	objs.keys[res.ObjectKey] = 10
+	if _, err := svc.Complete(context.Background(), owner, res.FileID, "etag"); err != nil {
+		t.Fatal(err)
+	}
+	return res.FileID
+}
+
+func TestCreateShareLinkForbidden(t *testing.T) {
+	store := mem.New()
+	objs := &fakeObjects{}
+	svc := NewMedia(store, objs, nil, 10_000, 5000, time.Minute)
+	fileID := completeOwnedPNG(t, svc, objs, "owner")
+	_, err := svc.CreateShareLink(context.Background(), "other", fileID, time.Hour)
+	if err != domain.ErrForbidden {
+		t.Fatalf("expected forbidden, got %v", err)
+	}
+}
+
+func TestShareLinkResolveAndExpiry(t *testing.T) {
+	store := mem.New()
+	objs := &fakeObjects{}
+	svc := NewMedia(store, objs, nil, 10_000, 5000, time.Minute)
+	fileID := completeOwnedPNG(t, svc, objs, "owner")
+
+	link, err := svc.CreateShareLink(context.Background(), "owner", fileID, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(link.Token) < 43 {
+		t.Fatalf("token too short: %s", link.Token)
+	}
+
+	pub, err := svc.ResolveShare(context.Background(), link.Token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pub.Variants["orig"].URL == "" {
+		t.Fatal("expected signed orig url")
+	}
+
+	expired := domain.ShareLink{
+		ID:        "expired-id",
+		Token:     "expired-token-value-that-is-not-guessable",
+		FileID:    fileID,
+		OwnerSub:  "owner",
+		ExpiresAt: time.Now().UTC().Add(-time.Minute),
+		CreatedAt: time.Now().UTC().Add(-time.Hour),
+	}
+	if err := store.CreateShareLink(context.Background(), expired); err != nil {
+		t.Fatal(err)
+	}
+	_, err = svc.ResolveShare(context.Background(), expired.Token)
+	if err != domain.ErrExpired {
+		t.Fatalf("expected expired, got %v", err)
+	}
+}
+
+func TestShareDownloadURL(t *testing.T) {
+	store := mem.New()
+	objs := &fakeObjects{}
+	svc := NewMedia(store, objs, nil, 10_000, 5000, time.Minute)
+	fileID := completeOwnedPNG(t, svc, objs, "owner")
+	link, err := svc.CreateShareLink(context.Background(), "owner", fileID, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	url, err := svc.ShareDownloadURL(context.Background(), link.Token, "orig")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if url == "" {
+		t.Fatal("empty download url")
+	}
+}

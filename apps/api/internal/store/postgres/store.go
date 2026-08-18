@@ -4,6 +4,9 @@ import (
 	"context"
 	"embed"
 	"errors"
+	"fmt"
+	"io/fs"
+	"sort"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -32,12 +35,27 @@ func Open(ctx context.Context, url string) (*Store, error) {
 }
 
 func (s *Store) migrate(ctx context.Context) error {
-	b, err := migrationFS.ReadFile("migrations/001_init.sql")
+	entries, err := fs.ReadDir(migrationFS, "migrations")
 	if err != nil {
 		return err
 	}
-	_, err = s.pool.Exec(ctx, string(b))
-	return err
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if !e.IsDir() {
+			names = append(names, e.Name())
+		}
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		b, err := migrationFS.ReadFile("migrations/" + name)
+		if err != nil {
+			return err
+		}
+		if _, err := s.pool.Exec(ctx, string(b)); err != nil {
+			return fmt.Errorf("migrate %s: %w", name, err)
+		}
+	}
+	return nil
 }
 
 func (s *Store) Close() { s.pool.Close() }
@@ -179,6 +197,28 @@ func (s *Store) GetQuotaUsed(ctx context.Context, ownerSub string) (int64, error
 	return used, err
 }
 
+func (s *Store) CreateShareLink(ctx context.Context, l domain.ShareLink) error {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO share_links (id, token, file_id, owner_sub, expires_at, created_at)
+		VALUES ($1,$2,$3,$4,$5,$6)`,
+		l.ID, l.Token, l.FileID, l.OwnerSub, l.ExpiresAt.UTC(), l.CreatedAt.UTC())
+	return err
+}
+
+func (s *Store) GetShareLinkByToken(ctx context.Context, token string) (domain.ShareLink, error) {
+	row := s.pool.QueryRow(ctx, `
+		SELECT id, token, file_id, owner_sub, expires_at, created_at
+		FROM share_links WHERE token = $1`, token)
+	var l domain.ShareLink
+	if err := row.Scan(&l.ID, &l.Token, &l.FileID, &l.OwnerSub, &l.ExpiresAt, &l.CreatedAt); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.ShareLink{}, domain.ErrNotFound
+		}
+		return domain.ShareLink{}, err
+	}
+	return l, nil
+}
+
 type scannable interface {
 	Scan(dest ...any) error
 }
@@ -197,4 +237,3 @@ func scanFile(row scannable) (domain.File, error) {
 	f.Variants = domain.ParseVariants(raw)
 	return f, nil
 }
-

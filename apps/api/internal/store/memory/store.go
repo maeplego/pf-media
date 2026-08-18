@@ -13,13 +13,15 @@ type Store struct {
 	files  map[string]domain.File
 	jobs   map[string]domain.Job
 	quota  map[string]int64
+	shares map[string]domain.ShareLink
 }
 
 func New() *Store {
 	return &Store{
-		files: map[string]domain.File{},
-		jobs:  map[string]domain.Job{},
-		quota: map[string]int64{},
+		files:  map[string]domain.File{},
+		jobs:   map[string]domain.Job{},
+		quota:  map[string]int64{},
+		shares: map[string]domain.ShareLink{},
 	}
 }
 
@@ -142,4 +144,24 @@ func (s *Store) GetQuotaUsed(_ context.Context, ownerSub string) (int64, error) 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.quota[ownerSub], nil
+}
+
+func (s *Store) CreateShareLink(_ context.Context, l domain.ShareLink) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.shares[l.Token]; ok {
+		return domain.ErrConflict
+	}
+	s.shares[l.Token] = l
+	return nil
+}
+
+func (s *Store) GetShareLinkByToken(_ context.Context, token string) (domain.ShareLink, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	l, ok := s.shares[token]
+	if !ok {
+		return domain.ShareLink{}, domain.ErrNotFound
+	}
+	return l, nil
 }
