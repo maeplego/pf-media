@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "node src/worker.js"
+    "start": "node src/worker.js",
+    "test": "node --test src/*.test.js"
   },
   "dependencies": {
     "minio": "^8.0.2",

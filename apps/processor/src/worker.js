@@ -1,6 +1,7 @@
 import { createClient } from "redis";
 import * as Minio from "minio";
 import { processImage } from "./process.js";
+import { DLQ_STREAM, JOBS_STREAM, dlqPayload, settleAction } from "./settle.js";
 
 const redisURL = process.env.MEDIA_REDIS_URL || "redis://redis:6379/0";
 const apiBase = process.env.MEDIA_API_URL || "http://api:8090";
@@ -54,28 +55,60 @@ function variantKey(objectKey, name) {
   return parts.join("/");
 }
 
-async function handle(msg) {
-  const { jobId, fileId, objectKey, bucket } = msg;
-  try {
-    const stream = await s3.getObject(bucket, objectKey);
-    const chunks = [];
-    for await (const c of stream) chunks.push(c);
-    const buffer = Buffer.concat(chunks);
-    const out = await processImage(buffer);
+async function deriveVariants(msg) {
+  const { objectKey, bucket } = msg;
+  const stream = await s3.getObject(bucket, objectKey);
+  const chunks = [];
+  for await (const c of stream) chunks.push(c);
+  const out = await processImage(Buffer.concat(chunks));
 
-    const variants = {};
-    for (const [name, v] of Object.entries(out)) {
-      const key = variantKey(objectKey, name);
-      await s3.putObject(bucket, key, v.body, v.body.length, {
-        "Content-Type": v.contentType,
-      });
-      variants[name] = { key, contentType: v.contentType };
-    }
-    await finishJob(jobId, variants, "");
-    console.log("processed", fileId, jobId);
+  const variants = {};
+  for (const [name, v] of Object.entries(out)) {
+    const key = variantKey(objectKey, name);
+    await s3.putObject(bucket, key, v.body, v.body.length, {
+      "Content-Type": v.contentType,
+    });
+    variants[name] = { key, contentType: v.contentType };
+  }
+  return variants;
+}
+
+async function settleFailure(client, entryId, msg, error) {
+  let finishReported = false;
+  try {
+    await finishJob(msg.jobId, {}, String(error?.message || error));
+    finishReported = true;
+  } catch (e) {
+    console.error("finish failed", msg.jobId, e);
+  }
+
+  const action = settleAction({ processed: false, finishReported });
+  if (action === "leave-pending") {
+    return;
+  }
+  if (action === "dlq-then-ack") {
+    await client.xAdd(DLQ_STREAM, "*", { payload: dlqPayload(msg, error) });
+  }
+  await client.xAck(JOBS_STREAM, group, entryId);
+}
+
+async function handle(client, entry) {
+  const msg = JSON.parse(entry.message.payload);
+  let variants;
+  try {
+    variants = await deriveVariants(msg);
   } catch (err) {
-    console.error("job failed", jobId, err);
-    await finishJob(jobId, {}, String(err.message || err));
+    console.error("job failed", msg.jobId, err);
+    await settleFailure(client, entry.id, msg, err);
+    return;
+  }
+  try {
+    await finishJob(msg.jobId, variants, "");
+    await client.xAck(JOBS_STREAM, group, entry.id);
+    console.log("processed", msg.fileId, msg.jobId);
+  } catch (err) {
+    // 派生は書けたが API へ届いていない。ACK すると再実行できない。
+    console.error("finish failed", msg.jobId, err);
   }
 }
 
@@ -85,24 +118,21 @@ async function main() {
   await client.connect();
 
   try {
-    await client.xGroupCreate("media:jobs", group, "0", { MKSTREAM: true });
+    await client.xGroupCreate(JOBS_STREAM, group, "0", { MKSTREAM: true });
   } catch (e) {
     if (!String(e.message).includes("BUSYGROUP")) throw e;
   }
 
-  console.log("processor listening on media:jobs");
+  console.log("processor listening on", JOBS_STREAM);
   for (;;) {
-    const res = await client.xReadGroup(group, consumer, [{ key: "media:jobs", id: ">" }], {
+    const res = await client.xReadGroup(group, consumer, [{ key: JOBS_STREAM, id: ">" }], {
       COUNT: 1,
       BLOCK: 5000,
     });
     if (!res) continue;
     for (const stream of res) {
       for (const entry of stream.messages) {
-        const payload = entry.message.payload;
-        const msg = JSON.parse(payload);
-        await handle(msg);
-        await client.xAck("media:jobs", group, entry.id);
+        await handle(client, entry);
       }
     }
   }

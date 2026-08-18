@@ -44,6 +44,7 @@ Compose では API に `extra_hosts: localhost:host-gateway` を付け、presign
 
 ## 制限（学習用）
 
-- 最大 20MB / 画像 4000px 超は拒否
+- 最大 20MB は presign / complete で HTTP 413
+- 画像 4000px 超・非画像マジックバイトは processor が拒否し、失敗ジョブは Redis の `media:jobs:dlq` に残る
 - MIME: `image/jpeg`, `image/png`, `image/webp`, `image/gif` のみ（デモ）
 - ユーザークォータ既定 100MB
