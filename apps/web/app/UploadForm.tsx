@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 import { uploadDriveFile } from "./actions";
 
-export function UploadForm({ user }: { user: string }) {
+export function UploadForm({ user, folderId }: { user: string; folderId: string }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -29,6 +29,7 @@ export function UploadForm({ user }: { user: string }) {
 
   return (
     <form onSubmit={onSubmit}>
+      {folderId ? <input type="hidden" name="folderId" value={folderId} /> : null}
       <input type="file" name="file" accept="image/*" required disabled={busy} />
       <button type="submit" disabled={busy}>
         {busy ? "送信中…" : "アップロード"}

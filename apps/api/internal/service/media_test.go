@@ -377,3 +377,43 @@ func TestDeleteFileReclaimsQuotaAndObjects(t *testing.T) {
 		t.Fatalf("second delete: %v", err)
 	}
 }
+
+func TestFolderHoldsFiles(t *testing.T) {
+	store := mem.New()
+	objs := &fakeObjects{}
+	svc := NewMedia(store, objs, nil, 10_000, 5000, time.Minute)
+	ctx := context.Background()
+	if _, err := svc.CreateFolder(ctx, "owner", "../x", ""); !errors.Is(err, domain.ErrInvalid) {
+		t.Fatalf("slash name: %v", err)
+	}
+	folder, err := svc.CreateFolder(ctx, "owner", "photos", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.CreateFolder(ctx, "other", "photos", folder.ID); !errors.Is(err, domain.ErrForbidden) {
+		t.Fatalf("other parent: %v", err)
+	}
+	listed, err := svc.ListFolders(ctx, "owner", "")
+	if err != nil || len(listed) != 1 || listed[0].ID != folder.ID {
+		t.Fatalf("list %+v %v", listed, err)
+	}
+	res, err := svc.Presign(ctx, "owner", PresignInput{ContentType: "image/png", Size: 10, Purpose: "drive", FolderID: folder.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	objs.keys[res.ObjectKey] = 10
+	if _, err := svc.Complete(ctx, "owner", res.FileID, "etag"); err != nil {
+		t.Fatal(err)
+	}
+	root, err := svc.ListFiles(ctx, "owner", "", 50)
+	if err != nil || len(root) != 0 {
+		t.Fatalf("root files %+v %v", root, err)
+	}
+	inside, err := svc.ListFiles(ctx, "owner", folder.ID, 50)
+	if err != nil || len(inside) != 1 || inside[0].ID != res.FileID {
+		t.Fatalf("folder files %+v %v", inside, err)
+	}
+	if _, err := svc.ListFiles(ctx, "other", folder.ID, 50); !errors.Is(err, domain.ErrForbidden) {
+		t.Fatalf("other list folder: %v", err)
+	}
+}

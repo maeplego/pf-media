@@ -37,6 +37,12 @@ func (s *Server) Routes(mw *auth.Middleware, processorToken string) http.Handler
 			s.listFiles(w, r)
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/quota":
 			s.getQuota(w, r)
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/folders":
+			s.createFolder(w, r)
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/folders":
+			s.listFolders(w, r)
+		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/v1/folders/"):
+			s.getFolder(w, r)
 		case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/v1/files/"):
 			s.deleteFile(w, r)
 		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/v1/files/"):
@@ -69,6 +75,7 @@ func (s *Server) presign(w http.ResponseWriter, r *http.Request) {
 		ContentType string `json:"contentType"`
 		Size        int64  `json:"size"`
 		Purpose     string `json:"purpose"`
+		FolderID    string `json:"folderId"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
@@ -78,6 +85,7 @@ func (s *Server) presign(w http.ResponseWriter, r *http.Request) {
 		ContentType: body.ContentType,
 		Size:        body.Size,
 		Purpose:     body.Purpose,
+		FolderID:    body.FolderID,
 	})
 	if err != nil {
 		writeErr(w, err)
@@ -114,7 +122,8 @@ func (s *Server) listFiles(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	files, err := s.media.ListFiles(r.Context(), u.Sub, 50)
+	folderID := r.URL.Query().Get("folderId")
+	files, err := s.media.ListFiles(r.Context(), u.Sub, folderID, 50)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -124,7 +133,12 @@ func (s *Server) listFiles(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"files": files, "quota": quota})
+	folders, err := s.media.ListFolders(r.Context(), u.Sub, folderID)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"files": files, "folders": folders, "quota": quota})
 }
 
 func (s *Server) getQuota(w http.ResponseWriter, r *http.Request) {
@@ -139,6 +153,61 @@ func (s *Server) getQuota(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, quota)
+}
+
+func (s *Server) createFolder(w http.ResponseWriter, r *http.Request) {
+	u, ok := auth.UserFrom(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	var body struct {
+		Name     string `json:"name"`
+		ParentID string `json:"parentId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	res, err := s.media.CreateFolder(r.Context(), u.Sub, body.Name, body.ParentID)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+func (s *Server) listFolders(w http.ResponseWriter, r *http.Request) {
+	u, ok := auth.UserFrom(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	folders, err := s.media.ListFolders(r.Context(), u.Sub, r.URL.Query().Get("parentId"))
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"folders": folders})
+}
+
+func (s *Server) getFolder(w http.ResponseWriter, r *http.Request) {
+	u, ok := auth.UserFrom(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	id := strings.TrimPrefix(r.URL.Path, "/v1/folders/")
+	if id == "" || strings.Contains(id, "/") {
+		http.NotFound(w, r)
+		return
+	}
+	res, err := s.media.GetFolder(r.Context(), u.Sub, id)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
 }
 
 func (s *Server) getFile(w http.ResponseWriter, r *http.Request) {

@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { apiFetch } from "./actions";
+import { CreateFolderForm } from "./CreateFolderForm";
 import { DeleteButton } from "./DeleteButton";
 import { PollPending } from "./PollPending";
 import { UploadForm } from "./UploadForm";
@@ -20,12 +21,28 @@ type QuotaView = {
   limitBytes: number;
 };
 
-async function listDrive(sub: string): Promise<{ files: FileView[]; quota: QuotaView }> {
-  const data = await apiFetch("/v1/files", sub);
+type FolderView = {
+  id: string;
+  parentId?: string;
+  name: string;
+};
+
+async function listDrive(sub: string, folderId: string): Promise<{ files: FileView[]; folders: FolderView[]; quota: QuotaView }> {
+  const q = folderId ? `?folderId=${encodeURIComponent(folderId)}` : "";
+  const data = await apiFetch(`/v1/files${q}`, sub);
   return {
     files: (data.files as FileView[]) || [],
+    folders: (data.folders as FolderView[]) || [],
     quota: data.quota || { usedBytes: 0, limitBytes: 0 },
   };
+}
+
+function driveHref(user: string, folder?: string) {
+  const q = new URLSearchParams({ user });
+  if (folder) {
+    q.set("folder", folder);
+  }
+  return `?${q.toString()}`;
 }
 
 function formatBytes(n: number) {
@@ -51,30 +68,51 @@ async function retryJob(sub: string, jobId: string) {
 export default async function Page({
   searchParams,
 }: {
-  searchParams: Promise<{ user?: string }>;
+  searchParams: Promise<{ user?: string; folder?: string }>;
 }) {
   const sp = await searchParams;
   const user = sp.user || "demo-user-a";
-  const { files, quota } = await listDrive(user).catch(() => ({
+  const folderId = sp.folder || "";
+  const { files, folders, quota } = await listDrive(user, folderId).catch(() => ({
     files: [] as FileView[],
+    folders: [] as FolderView[],
     quota: { usedBytes: 0, limitBytes: 0 },
   }));
+  const current = folderId
+    ? await apiFetch(`/v1/folders/${folderId}`, user).catch(() => null)
+    : null;
   const pending = files.some((f) => f.status === "pending");
 
   return (
     <div>
       <p>
         ユーザー: <strong>{user}</strong>{" "}
-        <a href="?user=demo-user-a">A</a> · <a href="?user=demo-user-b">B</a>
+        <a href={driveHref("demo-user-a")}>A</a> · <a href={driveHref("demo-user-b")}>B</a>
         （A のファイルは B には出ません）
       </p>
       <p>
         容量 <strong>{formatBytes(quota.usedBytes)}</strong> / {formatBytes(quota.limitBytes)}
         <span style={{ color: "#666" }}>（アップロードで増え、削除で戻ります）</span>
       </p>
+      <p>
+        <a href={driveHref(user)}>ルート</a>
+        {current?.parentId ? (
+          <>
+            {" / "}
+            <a href={driveHref(user, current.parentId)}>上へ</a>
+          </>
+        ) : null}
+        {current?.name ? ` / ${current.name}` : ""}
+      </p>
       <PollPending active={pending} />
-      <UploadForm user={user} />
+      <UploadForm user={user} folderId={folderId} />
+      <CreateFolderForm user={user} parentId={folderId} />
       <ul style={{ listStyle: "none", padding: 0, marginTop: "1.5rem" }}>
+        {folders.map((dir) => (
+          <li key={dir.id} style={{ marginBottom: "0.75rem" }}>
+            📁 <a href={driveHref(user, dir.id)}>{dir.name}</a>
+          </li>
+        ))}
         {files.map((f) => {
           const thumb = f.variants.thumb?.url || f.variants.orig?.url;
           return (

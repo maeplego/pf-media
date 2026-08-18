@@ -43,15 +43,18 @@ npm test        # apps/processor
 4. 「1分で期限切れ」のリンクは、期限後に 410 になる
 5. 別ユーザー B に切り替え、A のマイドライブ一覧には A のファイルが出ない
 6. 「削除」でオブジェクトと容量を返す
+7. 「フォルダ作成」で階層を作り、中にアップロードする
 
 ## 契約（他プロジェクト）
 
 - `POST /v1/uploads/presign` — `{ contentType, size, purpose }`
 - `POST /v1/uploads/complete` — `{ fileId, etag }`
-- `GET /v1/files` — 所有者の一覧と `quota`
+- `GET /v1/files` — 所有者の一覧と `quota`（`folderId` でフォルダ内。ルートは空）
 - `GET /v1/files/:id` — メタデータと派生 URL（署名付き GET）
 - `DELETE /v1/files/:id` — 所有者のみ。派生オブジェクトを消しクォータを返す
 - `GET /v1/quota` — `{ usedBytes, limitBytes }`
+- `POST /v1/folders` — `{ name, parentId? }`
+- `GET /v1/folders` — `parentId` 配下（ルートは空）
 - `POST /v1/share-links` — `{ fileId, expiresInSeconds, password? }`（所有者のみ。password は任意）
 - `GET /v1/s/:token` — ログイン不要。期限切れは 410。パスワード付きは `X-Share-Password` が必要（無いと 401）
 - `GET /v1/s/:token/download` — 署名付き GET へ 302（同じパスワードヘッダ）

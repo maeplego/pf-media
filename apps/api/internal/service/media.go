@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/portfolio/pf-media/api/internal/domain"
@@ -56,6 +57,7 @@ type PresignInput struct {
 	ContentType string
 	Size        int64
 	Purpose     string
+	FolderID    string
 }
 
 type PresignResult struct {
@@ -66,6 +68,7 @@ type PresignResult struct {
 
 type FileView struct {
 	ID          string                 `json:"id"`
+	FolderID    string                 `json:"folderId,omitempty"`
 	ContentType string                 `json:"contentType"`
 	SizeBytes   int64                  `json:"sizeBytes"`
 	Purpose     string                 `json:"purpose"`
@@ -75,6 +78,13 @@ type FileView struct {
 	JobID       string                 `json:"jobId,omitempty"`
 	JobStatus   domain.JobStatus       `json:"jobStatus,omitempty"`
 	JobError    string                 `json:"jobError,omitempty"`
+}
+
+type FolderView struct {
+	ID        string    `json:"id"`
+	ParentID  string    `json:"parentId,omitempty"`
+	Name      string    `json:"name"`
+	CreatedAt time.Time `json:"createdAt"`
 }
 
 type JobView struct {
@@ -148,12 +158,16 @@ func (m *Media) Presign(ctx context.Context, ownerSub string, in PresignInput) (
 	if used+in.Size > m.quotaLimit {
 		return PresignResult{}, domain.ErrQuota
 	}
+	if err := m.ensureOwnedFolder(ctx, ownerSub, in.FolderID); err != nil {
+		return PresignResult{}, err
+	}
 
 	fileID := id.New()
 	key := objectstore.ObjectKey(ownerSub, fileID)
 	f := domain.File{
 		ID:          fileID,
 		OwnerSub:    ownerSub,
+		FolderID:    in.FolderID,
 		ObjectKey:   key,
 		ContentType: in.ContentType,
 		SizeBytes:   in.Size,
@@ -364,11 +378,14 @@ func (m *Media) GetFile(ctx context.Context, requesterSub, fileID string) (FileV
 	return m.withJob(ctx, f)
 }
 
-func (m *Media) ListFiles(ctx context.Context, ownerSub string, limit int) ([]FileView, error) {
+func (m *Media) ListFiles(ctx context.Context, ownerSub, folderID string, limit int) ([]FileView, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 50
 	}
-	files, err := m.store.ListFilesByOwner(ctx, ownerSub, limit)
+	if err := m.ensureOwnedFolder(ctx, ownerSub, folderID); err != nil {
+		return nil, err
+	}
+	files, err := m.store.ListFilesByOwner(ctx, ownerSub, folderID, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -389,6 +406,80 @@ func (m *Media) GetQuota(ctx context.Context, ownerSub string) (QuotaView, error
 		return QuotaView{}, err
 	}
 	return QuotaView{UsedBytes: used, LimitBytes: m.quotaLimit}, nil
+}
+
+func folderNameOK(name string) bool {
+	if name != strings.TrimSpace(name) {
+		return false
+	}
+	if name == "" || name == "." || name == ".." || len(name) > 64 {
+		return false
+	}
+	if strings.ContainsAny(name, `/\`) {
+		return false
+	}
+	return true
+}
+
+func (m *Media) ensureOwnedFolder(ctx context.Context, ownerSub, folderID string) error {
+	if folderID == "" {
+		return nil
+	}
+	f, err := m.store.GetFolder(ctx, folderID)
+	if err != nil {
+		return err
+	}
+	if f.OwnerSub != ownerSub {
+		return domain.ErrForbidden
+	}
+	return nil
+}
+
+func (m *Media) CreateFolder(ctx context.Context, ownerSub, name, parentID string) (FolderView, error) {
+	if !folderNameOK(name) {
+		return FolderView{}, domain.ErrInvalid
+	}
+	if err := m.ensureOwnedFolder(ctx, ownerSub, parentID); err != nil {
+		return FolderView{}, err
+	}
+	now := time.Now().UTC()
+	f := domain.Folder{
+		ID:        id.New(),
+		OwnerSub:  ownerSub,
+		ParentID:  parentID,
+		Name:      name,
+		CreatedAt: now,
+	}
+	if err := m.store.CreateFolder(ctx, f); err != nil {
+		return FolderView{}, err
+	}
+	return FolderView{ID: f.ID, ParentID: f.ParentID, Name: f.Name, CreatedAt: f.CreatedAt}, nil
+}
+
+func (m *Media) ListFolders(ctx context.Context, ownerSub, parentID string) ([]FolderView, error) {
+	if err := m.ensureOwnedFolder(ctx, ownerSub, parentID); err != nil {
+		return nil, err
+	}
+	folders, err := m.store.ListFolders(ctx, ownerSub, parentID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]FolderView, 0, len(folders))
+	for _, f := range folders {
+		out = append(out, FolderView{ID: f.ID, ParentID: f.ParentID, Name: f.Name, CreatedAt: f.CreatedAt})
+	}
+	return out, nil
+}
+
+func (m *Media) GetFolder(ctx context.Context, ownerSub, folderID string) (FolderView, error) {
+	f, err := m.store.GetFolder(ctx, folderID)
+	if err != nil {
+		return FolderView{}, err
+	}
+	if f.OwnerSub != ownerSub {
+		return FolderView{}, domain.ErrForbidden
+	}
+	return FolderView{ID: f.ID, ParentID: f.ParentID, Name: f.Name, CreatedAt: f.CreatedAt}, nil
 }
 
 func (m *Media) DeleteFile(ctx context.Context, ownerSub, fileID string) error {
@@ -507,6 +598,7 @@ func (m *Media) FinishJob(ctx context.Context, jobID string, variants domain.Var
 func (m *Media) fileView(ctx context.Context, f domain.File) (FileView, error) {
 	view := FileView{
 		ID:          f.ID,
+		FolderID:    f.FolderID,
 		ContentType: f.ContentType,
 		SizeBytes:   f.SizeBytes,
 		Purpose:     f.Purpose,

@@ -130,3 +130,59 @@ func TestQuotaRequiresAuth(t *testing.T) {
 		t.Fatalf("status %d", rec.Code)
 	}
 }
+
+func TestFoldersHTTP(t *testing.T) {
+	h := driveHandler()
+	rec := doJSON(t, h, http.MethodPost, "/v1/folders", "owner", `{"name":"docs"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("create %d %s", rec.Code, rec.Body.String())
+	}
+	var folder struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &folder); err != nil {
+		t.Fatal(err)
+	}
+	rec = doJSON(t, h, http.MethodPost, "/v1/uploads/presign", "owner", `{"contentType":"image/png","size":10,"purpose":"drive","folderId":"`+folder.ID+`"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("presign %d %s", rec.Code, rec.Body.String())
+	}
+	var presign struct {
+		FileID string `json:"fileId"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &presign); err != nil {
+		t.Fatal(err)
+	}
+	rec = doJSON(t, h, http.MethodPost, "/v1/uploads/complete", "owner", `{"fileId":"`+presign.FileID+`","etag":"etag"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("complete %d %s", rec.Code, rec.Body.String())
+	}
+	rec = doJSON(t, h, http.MethodGet, "/v1/files", "owner", "")
+	var root struct {
+		Files []struct {
+			ID string `json:"id"`
+		} `json:"files"`
+		Folders []struct {
+			ID string `json:"id"`
+		} `json:"folders"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &root); err != nil {
+		t.Fatal(err)
+	}
+	if len(root.Files) != 0 || len(root.Folders) != 1 {
+		t.Fatalf("root %+v", root)
+	}
+	rec = doJSON(t, h, http.MethodGet, "/v1/files?folderId="+folder.ID, "owner", "")
+	var inside struct {
+		Files []struct {
+			ID string `json:"id"`
+		} `json:"files"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &inside); err != nil {
+		t.Fatal(err)
+	}
+	if len(inside.Files) != 1 || inside.Files[0].ID != presign.FileID {
+		t.Fatalf("inside %+v", inside)
+	}
+}
