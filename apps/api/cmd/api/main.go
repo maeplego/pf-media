@@ -74,7 +74,12 @@ func main() {
 	mw := auth.New(cfg.DevAuth, cfg.OIDCIssuer, cfg.OIDCInternalBase, cfg.OIDCAudience)
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           otelhttp.NewHandler(web.New(media).Routes(mw, cfg.ProcessorToken), "media-api"),
+		Handler: otelhttp.NewHandler(web.New(media).Routes(mw, cfg.ProcessorToken), "media-api",
+			otelhttp.WithFilter(telemetry.SkipProbe),
+			otelhttp.WithSpanNameFormatter(func(_ string, r *http.Request) string {
+				return r.Method + " " + r.URL.Path
+			}),
+		),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 

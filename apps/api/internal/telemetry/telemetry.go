@@ -3,6 +3,7 @@ package telemetry
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"strings"
 
 	"go.opentelemetry.io/otel"
@@ -14,6 +15,16 @@ import (
 )
 
 type ShutdownFunc func(context.Context) error
+
+// SkipProbe drops Kubernetes liveness/readiness hits so Grafana is not only GET /health.
+func SkipProbe(r *http.Request) bool {
+	switch r.URL.Path {
+	case "/health", "/ready", "/live":
+		return false
+	default:
+		return true
+	}
+}
 
 // Init is a no-op when otlpEndpoint is empty so Compose without Collector still runs.
 func Init(ctx context.Context, serviceName, otlpEndpoint string) (ShutdownFunc, error) {
