@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -15,7 +16,9 @@ import (
 	"github.com/portfolio/pf-media/api/internal/queue"
 	"github.com/portfolio/pf-media/api/internal/service"
 	"github.com/portfolio/pf-media/api/internal/store/postgres"
+	"github.com/portfolio/pf-media/api/internal/telemetry"
 	"github.com/portfolio/pf-media/api/internal/web"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 func main() {
@@ -24,6 +27,15 @@ func main() {
 		log.Fatal(err)
 	}
 	ctx := context.Background()
+	otelEP := strings.TrimSpace(os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"))
+	svcName := strings.TrimSpace(os.Getenv("OTEL_SERVICE_NAME"))
+	if svcName == "" {
+		svcName = "media-api"
+	}
+	shutdownTel, err := telemetry.Init(ctx, svcName, otelEP)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	store, err := postgres.Open(ctx, cfg.DatabaseURL)
 	if err != nil {
@@ -62,7 +74,7 @@ func main() {
 	mw := auth.New(cfg.DevAuth, cfg.OIDCIssuer, cfg.OIDCInternalBase, cfg.OIDCAudience)
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           web.New(media).Routes(mw, cfg.ProcessorToken),
+		Handler:           otelhttp.NewHandler(web.New(media).Routes(mw, cfg.ProcessorToken), "media-api"),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
@@ -79,4 +91,5 @@ func main() {
 	shCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_ = srv.Shutdown(shCtx)
+	_ = shutdownTel(shCtx)
 }
