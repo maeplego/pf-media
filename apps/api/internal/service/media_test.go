@@ -417,3 +417,75 @@ func TestFolderHoldsFiles(t *testing.T) {
 		t.Fatalf("other list folder: %v", err)
 	}
 }
+
+func TestDeleteEmptyFolder(t *testing.T) {
+	store := mem.New()
+	svc := NewMedia(store, &fakeObjects{}, nil, 10_000, 5000, time.Minute)
+	ctx := context.Background()
+	folder, err := svc.CreateFolder(ctx, "owner", "trash-me", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.DeleteFolder(ctx, "other", folder.ID); !errors.Is(err, domain.ErrForbidden) {
+		t.Fatalf("other delete: %v", err)
+	}
+	if err := svc.DeleteFolder(ctx, "owner", folder.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.DeleteFolder(ctx, "owner", folder.ID); err != nil {
+		t.Fatalf("idempotent delete: %v", err)
+	}
+	listed, err := svc.ListFolders(ctx, "owner", "")
+	if err != nil || len(listed) != 0 {
+		t.Fatalf("folders left %+v %v", listed, err)
+	}
+}
+
+func TestDeleteFolderRecursive(t *testing.T) {
+	store := mem.New()
+	objs := &fakeObjects{}
+	svc := NewMedia(store, objs, nil, 10_000, 5000, time.Minute)
+	ctx := context.Background()
+	folder, err := svc.CreateFolder(ctx, "owner", "full", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := svc.Presign(ctx, "owner", PresignInput{ContentType: "image/png", Size: 10, Purpose: "drive", FolderID: folder.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	objs.keys[res.ObjectKey] = 10
+	if _, err := svc.Complete(ctx, "owner", res.FileID, "etag"); err != nil {
+		t.Fatal(err)
+	}
+	child, err := svc.CreateFolder(ctx, "owner", "child", folder.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	childFile, err := svc.Presign(ctx, "owner", PresignInput{ContentType: "image/png", Size: 5, Purpose: "drive", FolderID: child.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	objs.keys[childFile.ObjectKey] = 5
+	if _, err := svc.Complete(ctx, "owner", childFile.FileID, "etag"); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.DeleteFolder(ctx, "owner", folder.ID); err != nil {
+		t.Fatal(err)
+	}
+	if len(objs.keys) != 0 {
+		t.Fatalf("objects left %+v", objs.keys)
+	}
+	q, err := svc.GetQuota(ctx, "owner")
+	if err != nil || q.UsedBytes != 0 {
+		t.Fatalf("quota %+v %v", q, err)
+	}
+	listed, err := svc.ListFolders(ctx, "owner", "")
+	if err != nil || len(listed) != 0 {
+		t.Fatalf("folders left %+v %v", listed, err)
+	}
+	files, err := svc.ListFiles(ctx, "owner", "", 50)
+	if err != nil || len(files) != 0 {
+		t.Fatalf("files left %+v %v", files, err)
+	}
+}

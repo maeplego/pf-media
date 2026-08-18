@@ -57,3 +57,34 @@ func TestDeleteFileRemovesJobsAndShares(t *testing.T) {
 		t.Fatalf("share: %v", err)
 	}
 }
+
+func TestFolderIsEmptyAndDelete(t *testing.T) {
+	s := New()
+	ctx := context.Background()
+	parent := domain.Folder{ID: "p1", OwnerSub: "u", Name: "parent", CreatedAt: time.Now().UTC()}
+	child := domain.Folder{ID: "c1", OwnerSub: "u", ParentID: "p1", Name: "child", CreatedAt: time.Now().UTC()}
+	if err := s.CreateFolder(ctx, parent); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateFolder(ctx, child); err != nil {
+		t.Fatal(err)
+	}
+	empty, err := s.FolderIsEmpty(ctx, "p1")
+	if err != nil || empty {
+		t.Fatalf("parent should not be empty")
+	}
+	empty, err = s.FolderIsEmpty(ctx, "c1")
+	if err != nil || !empty {
+		t.Fatalf("child should be empty")
+	}
+	if err := s.DeleteFolder(ctx, "c1"); err != nil {
+		t.Fatal(err)
+	}
+	empty, err = s.FolderIsEmpty(ctx, "p1")
+	if err != nil || !empty {
+		t.Fatalf("parent empty after child removed")
+	}
+	if err := s.DeleteFolder(ctx, "p1"); err != nil {
+		t.Fatal(err)
+	}
+}

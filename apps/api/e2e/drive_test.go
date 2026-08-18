@@ -190,3 +190,79 @@ func TestDrivePageShowsQuotaE2E(t *testing.T) {
 		t.Fatalf("drive page missing user")
 	}
 }
+
+func TestFolderDeleteE2E(t *testing.T) {
+	skipUnlessUp(t)
+	sub := fmt.Sprintf("e2e-folder-%d", time.Now().UnixNano())
+
+	code, body := apiJSON(t, http.MethodPost, "/v1/folders", sub, map[string]any{"name": "empty-dir"})
+	if code != http.StatusOK {
+		t.Fatalf("create folder %d %s", code, body)
+	}
+	var folder struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(body, &folder); err != nil {
+		t.Fatal(err)
+	}
+
+	code, body = apiJSON(t, http.MethodDelete, "/v1/folders/"+folder.ID, sub, nil)
+	if code != http.StatusOK {
+		t.Fatalf("delete empty %d %s", code, body)
+	}
+	code, body = apiJSON(t, http.MethodDelete, "/v1/folders/"+folder.ID, sub, nil)
+	if code != http.StatusOK {
+		t.Fatalf("idempotent delete %d %s", code, body)
+	}
+
+	code, body = apiJSON(t, http.MethodPost, "/v1/folders", sub, map[string]any{"name": "full-dir"})
+	if err := json.Unmarshal(body, &folder); err != nil {
+		t.Fatal(err)
+	}
+	pngBytes := tinyPNG(t)
+	code, body = apiJSON(t, http.MethodPost, "/v1/uploads/presign", sub, map[string]any{
+		"contentType": "image/png",
+		"size":        len(pngBytes),
+		"purpose":     "drive",
+		"folderId":    folder.ID,
+	})
+	var presign struct {
+		FileID    string `json:"fileId"`
+		UploadURL string `json:"uploadUrl"`
+	}
+	if err := json.Unmarshal(body, &presign); err != nil {
+		t.Fatal(err)
+	}
+	put, err := http.NewRequest(http.MethodPut, presign.UploadURL, bytes.NewReader(pngBytes))
+	if err != nil {
+		t.Fatal(err)
+	}
+	put.Header.Set("Content-Type", "image/png")
+	putRes, err := (&http.Client{Timeout: 15 * time.Second}).Do(put)
+	if err != nil {
+		t.Fatal(err)
+	}
+	putRes.Body.Close()
+	code, body = apiJSON(t, http.MethodPost, "/v1/uploads/complete", sub, map[string]any{
+		"fileId": presign.FileID,
+		"etag":   strings.Trim(putRes.Header.Get("Etag"), `"`),
+	})
+	if code != http.StatusOK {
+		t.Fatalf("complete %d %s", code, body)
+	}
+
+	code, body = apiJSON(t, http.MethodDelete, "/v1/folders/"+folder.ID, sub, nil)
+	if code != http.StatusOK {
+		t.Fatalf("recursive delete want 200 got %d %s", code, body)
+	}
+	code, body = apiJSON(t, http.MethodGet, "/v1/quota", sub, nil)
+	var quotaAfter struct {
+		UsedBytes int64 `json:"usedBytes"`
+	}
+	if err := json.Unmarshal(body, &quotaAfter); err != nil {
+		t.Fatal(err)
+	}
+	if quotaAfter.UsedBytes != 0 {
+		t.Fatalf("quota after folder delete %d", quotaAfter.UsedBytes)
+	}
+}

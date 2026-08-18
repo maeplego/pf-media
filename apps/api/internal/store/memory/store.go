@@ -247,3 +247,29 @@ func (s *Store) ListFolders(_ context.Context, ownerSub, parentID string) ([]dom
 	}
 	return out, nil
 }
+
+func (s *Store) FolderIsEmpty(_ context.Context, folderID string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, f := range s.files {
+		if f.FolderID == folderID {
+			return false, nil
+		}
+	}
+	for _, f := range s.folders {
+		if f.ParentID == folderID {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+func (s *Store) DeleteFolder(_ context.Context, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.folders[id]; !ok {
+		return domain.ErrNotFound
+	}
+	delete(s.folders, id)
+	return nil
+}

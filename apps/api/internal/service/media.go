@@ -482,6 +482,51 @@ func (m *Media) GetFolder(ctx context.Context, ownerSub, folderID string) (Folde
 	return FolderView{ID: f.ID, ParentID: f.ParentID, Name: f.Name, CreatedAt: f.CreatedAt}, nil
 }
 
+func (m *Media) DeleteFolder(ctx context.Context, ownerSub, folderID string) error {
+	f, err := m.store.GetFolder(ctx, folderID)
+	if errors.Is(err, domain.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if f.OwnerSub != ownerSub {
+		return domain.ErrForbidden
+	}
+	return m.deleteFolderTree(ctx, ownerSub, folderID)
+}
+
+func (m *Media) deleteFolderTree(ctx context.Context, ownerSub, folderID string) error {
+	children, err := m.store.ListFolders(ctx, ownerSub, folderID)
+	if err != nil {
+		return err
+	}
+	for _, child := range children {
+		if err := m.deleteFolderTree(ctx, ownerSub, child.ID); err != nil {
+			return err
+		}
+	}
+	const batch = 100
+	for {
+		files, err := m.store.ListFilesByOwner(ctx, ownerSub, folderID, batch)
+		if err != nil {
+			return err
+		}
+		if len(files) == 0 {
+			break
+		}
+		for _, file := range files {
+			if err := m.DeleteFile(ctx, ownerSub, file.ID); err != nil {
+				return err
+			}
+		}
+		if len(files) < batch {
+			break
+		}
+	}
+	return m.store.DeleteFolder(ctx, folderID)
+}
+
 func (m *Media) DeleteFile(ctx context.Context, ownerSub, fileID string) error {
 	f, err := m.store.GetFile(ctx, fileID)
 	if errors.Is(err, domain.ErrNotFound) {

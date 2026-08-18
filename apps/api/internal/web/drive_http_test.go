@@ -186,3 +186,68 @@ func TestFoldersHTTP(t *testing.T) {
 		t.Fatalf("inside %+v", inside)
 	}
 }
+
+func TestDeleteFolderHTTP(t *testing.T) {
+	h := driveHandler()
+	rec := doJSON(t, h, http.MethodPost, "/v1/folders", "owner", `{"name":"empty"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("create %d %s", rec.Code, rec.Body.String())
+	}
+	var folder struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &folder); err != nil {
+		t.Fatal(err)
+	}
+	rec = doJSON(t, h, http.MethodDelete, "/v1/folders/"+folder.ID, "other", "")
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("other delete %d", rec.Code)
+	}
+	rec = doJSON(t, h, http.MethodDelete, "/v1/folders/"+folder.ID, "owner", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("delete %d %s", rec.Code, rec.Body.String())
+	}
+	rec = doJSON(t, h, http.MethodGet, "/v1/files", "owner", "")
+	var root struct {
+		Folders []struct{ ID string `json:"id"` } `json:"folders"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &root); err != nil {
+		t.Fatal(err)
+	}
+	if len(root.Folders) != 0 {
+		t.Fatalf("folder left %+v", root.Folders)
+	}
+
+	rec = doJSON(t, h, http.MethodPost, "/v1/folders", "owner", `{"name":"full"}`)
+	if err := json.Unmarshal(rec.Body.Bytes(), &folder); err != nil {
+		t.Fatal(err)
+	}
+	rec = doJSON(t, h, http.MethodPost, "/v1/uploads/presign", "owner", `{"contentType":"image/png","size":10,"purpose":"drive","folderId":"`+folder.ID+`"}`)
+	var presign struct {
+		FileID string `json:"fileId"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &presign); err != nil {
+		t.Fatal(err)
+	}
+	rec = doJSON(t, h, http.MethodPost, "/v1/uploads/complete", "owner", `{"fileId":"`+presign.FileID+`","etag":"etag"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("complete %d %s", rec.Code, rec.Body.String())
+	}
+	rec = doJSON(t, h, http.MethodDelete, "/v1/folders/"+folder.ID, "owner", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("recursive delete %d %s", rec.Code, rec.Body.String())
+	}
+	rec = doJSON(t, h, http.MethodGet, "/v1/files", "owner", "")
+	var after struct {
+		Files []any `json:"files"`
+		Quota struct {
+			UsedBytes int64 `json:"usedBytes"`
+		} `json:"quota"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &after); err != nil {
+		t.Fatal(err)
+	}
+	if len(after.Files) != 0 || after.Quota.UsedBytes != 0 {
+		t.Fatalf("content left files=%d quota=%d", len(after.Files), after.Quota.UsedBytes)
+	}
+}

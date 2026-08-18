@@ -41,6 +41,8 @@ func (s *Server) Routes(mw *auth.Middleware, processorToken string) http.Handler
 			s.createFolder(w, r)
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/folders":
 			s.listFolders(w, r)
+		case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/v1/folders/"):
+			s.deleteFolder(w, r)
 		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/v1/folders/"):
 			s.getFolder(w, r)
 		case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/v1/files/"):
@@ -208,6 +210,24 @@ func (s *Server) getFolder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, res)
+}
+
+func (s *Server) deleteFolder(w http.ResponseWriter, r *http.Request) {
+	u, ok := auth.UserFrom(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	id := strings.TrimPrefix(r.URL.Path, "/v1/folders/")
+	if id == "" || strings.Contains(id, "/") {
+		http.NotFound(w, r)
+		return
+	}
+	if err := s.media.DeleteFolder(r.Context(), u.Sub, id); err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"deleted": true})
 }
 
 func (s *Server) getFile(w http.ResponseWriter, r *http.Request) {

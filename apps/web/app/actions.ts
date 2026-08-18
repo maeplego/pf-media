@@ -1,6 +1,12 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
+
 const API = process.env.MEDIA_API_URL || "http://localhost:8090";
+
+function revalidateDrive() {
+  revalidatePath("/", "page");
+}
 
 export async function apiFetch(path: string, sub: string, init?: RequestInit) {
   const res = await fetch(`${API}${path}`, {
@@ -54,6 +60,7 @@ export async function uploadDriveFile(sub: string, formData: FormData): Promise<
       method: "POST",
       body: JSON.stringify({ fileId: presign.fileId, etag: put.headers.get("etag") || "" }),
     });
+    revalidateDrive();
     return null;
   } catch (err) {
     return err instanceof Error ? err.message : "upload failed";
@@ -70,6 +77,7 @@ export async function createDriveFolder(sub: string, name: string, parentId: str
       method: "POST",
       body: JSON.stringify({ name: trimmed, parentId }),
     });
+    revalidateDrive();
     return null;
   } catch (err) {
     return err instanceof Error ? err.message : "folder create failed";
@@ -79,9 +87,24 @@ export async function createDriveFolder(sub: string, name: string, parentId: str
 export async function deleteDriveFile(sub: string, fileId: string): Promise<string | null> {
   try {
     await apiFetch(`/v1/files/${fileId}`, sub, { method: "DELETE" });
+    revalidateDrive();
     return null;
   } catch (err) {
     const message = err instanceof Error ? err.message : "delete failed";
+    if (message.toLowerCase().includes("not found")) {
+      return null;
+    }
+    return message;
+  }
+}
+
+export async function deleteDriveFolder(sub: string, folderId: string): Promise<string | null> {
+  try {
+    await apiFetch(`/v1/folders/${folderId}`, sub, { method: "DELETE" });
+    revalidateDrive();
+    return null;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "folder delete failed";
     if (message.toLowerCase().includes("not found")) {
       return null;
     }

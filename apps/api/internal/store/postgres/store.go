@@ -305,6 +305,30 @@ func (s *Store) ListFolders(ctx context.Context, ownerSub, parentID string) ([]d
 	return out, rows.Err()
 }
 
+func (s *Store) FolderIsEmpty(ctx context.Context, folderID string) (bool, error) {
+	var n int
+	err := s.pool.QueryRow(ctx, `
+		SELECT (
+			(SELECT COUNT(*) FROM files WHERE folder_id = $1) +
+			(SELECT COUNT(*) FROM folders WHERE parent_id = $1)
+		)`, folderID).Scan(&n)
+	if err != nil {
+		return false, err
+	}
+	return n == 0, nil
+}
+
+func (s *Store) DeleteFolder(ctx context.Context, id string) error {
+	tag, err := s.pool.Exec(ctx, `DELETE FROM folders WHERE id = $1`, id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
 func emptyToNil(s string) any {
 	if s == "" {
 		return nil

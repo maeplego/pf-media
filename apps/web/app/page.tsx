@@ -1,7 +1,9 @@
+import { unstable_noStore as noStore } from "next/cache";
 import { redirect } from "next/navigation";
 import { apiFetch } from "./actions";
 import { CreateFolderForm } from "./CreateFolderForm";
 import { DeleteButton } from "./DeleteButton";
+import { DeleteFolderButton } from "./DeleteFolderButton";
 import { PollPending } from "./PollPending";
 import { UploadForm } from "./UploadForm";
 
@@ -70,6 +72,7 @@ export default async function Page({
 }: {
   searchParams: Promise<{ user?: string; folder?: string }>;
 }) {
+  noStore();
   const sp = await searchParams;
   const user = sp.user || "demo-user-a";
   const folderId = sp.folder || "";
@@ -111,6 +114,7 @@ export default async function Page({
         {folders.map((dir) => (
           <li key={dir.id} style={{ marginBottom: "0.75rem" }}>
             📁 <a href={driveHref(user, dir.id)}>{dir.name}</a>
+            <DeleteFolderButton user={user} folderId={dir.id} folderName={dir.name} />
           </li>
         ))}
         {files.map((f) => {

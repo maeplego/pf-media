@@ -55,6 +55,7 @@ npm test        # apps/processor
 - `GET /v1/quota` — `{ usedBytes, limitBytes }`
 - `POST /v1/folders` — `{ name, parentId? }`
 - `GET /v1/folders` — `parentId` 配下（ルートは空）
+- `DELETE /v1/folders/:id` — 所有者のみ。中のファイル・サブフォルダを再帰削除しクォータを返す。冪等
 - `POST /v1/share-links` — `{ fileId, expiresInSeconds, password? }`（所有者のみ。password は任意）
 - `GET /v1/s/:token` — ログイン不要。期限切れは 410。パスワード付きは `X-Share-Password` が必要（無いと 401）
 - `GET /v1/s/:token/download` — 署名付き GET へ 302（同じパスワードヘッダ）

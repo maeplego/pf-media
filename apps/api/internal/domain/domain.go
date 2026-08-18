@@ -121,4 +121,6 @@ type Store interface {
 	CreateFolder(ctx context.Context, f Folder) error
 	GetFolder(ctx context.Context, id string) (Folder, error)
 	ListFolders(ctx context.Context, ownerSub, parentID string) ([]Folder, error)
+	FolderIsEmpty(ctx context.Context, folderID string) (bool, error)
+	DeleteFolder(ctx context.Context, id string) error
 }
