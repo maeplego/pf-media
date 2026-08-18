@@ -115,6 +115,26 @@ func (s *Store) GetJob(_ context.Context, id string) (domain.Job, error) {
 	return j, nil
 }
 
+func (s *Store) GetLatestJobByFile(_ context.Context, fileID string) (domain.Job, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var best domain.Job
+	found := false
+	for _, j := range s.jobs {
+		if j.FileID != fileID {
+			continue
+		}
+		if !found || j.UpdatedAt.After(best.UpdatedAt) {
+			best = j
+			found = true
+		}
+	}
+	if !found {
+		return domain.Job{}, domain.ErrNotFound
+	}
+	return best, nil
+}
+
 func (s *Store) UpdateJob(_ context.Context, id string, status domain.JobStatus, errMsg string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

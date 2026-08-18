@@ -39,6 +39,10 @@ func (s *Server) Routes(mw *auth.Middleware, processorToken string) http.Handler
 			s.getFile(w, r)
 		case r.Method == http.MethodPost && r.URL.Path == "/v1/share-links":
 			s.createShare(w, r)
+		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/v1/jobs/"):
+			s.getJob(w, r)
+		case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/v1/jobs/") && strings.HasSuffix(r.URL.Path, "/retry"):
+			s.retryJob(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -146,6 +150,44 @@ func (s *Server) createShare(w http.ResponseWriter, r *http.Request) {
 	}
 	ttl := time.Duration(body.ExpiresInSeconds) * time.Second
 	res, err := s.media.CreateShareLink(r.Context(), u.Sub, body.FileID, ttl, body.Password)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+func (s *Server) getJob(w http.ResponseWriter, r *http.Request) {
+	u, ok := auth.UserFrom(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	id := strings.TrimPrefix(r.URL.Path, "/v1/jobs/")
+	if id == "" || strings.Contains(id, "/") {
+		http.NotFound(w, r)
+		return
+	}
+	res, err := s.media.GetJob(r.Context(), u.Sub, id)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+func (s *Server) retryJob(w http.ResponseWriter, r *http.Request) {
+	u, ok := auth.UserFrom(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	id := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/v1/jobs/"), "/retry")
+	if id == "" || strings.Contains(id, "/") {
+		http.NotFound(w, r)
+		return
+	}
+	res, err := s.media.RetryJob(r.Context(), u.Sub, id)
 	if err != nil {
 		writeErr(w, err)
 		return

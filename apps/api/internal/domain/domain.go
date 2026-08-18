@@ -102,6 +102,7 @@ type Store interface {
 	UpdateVariants(ctx context.Context, id string, variants Variants) error
 	CreateJob(ctx context.Context, j Job) error
 	GetJob(ctx context.Context, id string) (Job, error)
+	GetLatestJobByFile(ctx context.Context, fileID string) (Job, error)
 	UpdateJob(ctx context.Context, id string, status JobStatus, errMsg string) error
 	AddQuota(ctx context.Context, ownerSub string, delta int64, limit int64) error
 	GetQuotaUsed(ctx context.Context, ownerSub string) (int64, error)

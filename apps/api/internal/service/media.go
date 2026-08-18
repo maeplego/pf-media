@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -70,6 +71,17 @@ type FileView struct {
 	Status      domain.FileStatus      `json:"status"`
 	Variants    map[string]VariantView `json:"variants"`
 	CreatedAt   time.Time              `json:"createdAt"`
+	JobID       string                 `json:"jobId,omitempty"`
+	JobStatus   domain.JobStatus       `json:"jobStatus,omitempty"`
+	JobError    string                 `json:"jobError,omitempty"`
+}
+
+type JobView struct {
+	ID        string           `json:"id"`
+	FileID    string           `json:"fileId"`
+	Status    domain.JobStatus `json:"status"`
+	Error     string           `json:"error"`
+	UpdatedAt time.Time        `json:"updatedAt"`
 }
 
 type ShareLinkView struct {
@@ -343,7 +355,7 @@ func (m *Media) GetFile(ctx context.Context, requesterSub, fileID string) (FileV
 	if f.OwnerSub != requesterSub {
 		return FileView{}, domain.ErrForbidden
 	}
-	return m.fileView(ctx, f)
+	return m.withJob(ctx, f)
 }
 
 func (m *Media) ListFiles(ctx context.Context, ownerSub string, limit int) ([]FileView, error) {
@@ -356,13 +368,86 @@ func (m *Media) ListFiles(ctx context.Context, ownerSub string, limit int) ([]Fi
 	}
 	out := make([]FileView, 0, len(files))
 	for _, f := range files {
-		v, err := m.fileView(ctx, f)
+		v, err := m.withJob(ctx, f)
 		if err != nil {
 			return nil, err
 		}
 		out = append(out, v)
 	}
 	return out, nil
+}
+
+func (m *Media) GetJob(ctx context.Context, ownerSub, jobID string) (JobView, error) {
+	j, f, err := m.jobOwnedBy(ctx, ownerSub, jobID)
+	if err != nil {
+		return JobView{}, err
+	}
+	_ = f
+	return JobView{ID: j.ID, FileID: j.FileID, Status: j.Status, Error: j.Error, UpdatedAt: j.UpdatedAt}, nil
+}
+
+func (m *Media) RetryJob(ctx context.Context, ownerSub, jobID string) (JobView, error) {
+	j, f, err := m.jobOwnedBy(ctx, ownerSub, jobID)
+	if err != nil {
+		return JobView{}, err
+	}
+	if j.Status != domain.JobFailed {
+		return JobView{}, domain.ErrConflict
+	}
+	if err := m.store.UpdateJob(ctx, jobID, domain.JobQueued, ""); err != nil {
+		return JobView{}, err
+	}
+	if err := m.store.SetFileStatus(ctx, f.ID, domain.FilePending); err != nil {
+		return JobView{}, err
+	}
+	if m.queue != nil {
+		if err := m.queue.Enqueue(ctx, queue.JobMessage{
+			JobID:     j.ID,
+			FileID:    f.ID,
+			ObjectKey: f.ObjectKey,
+			Bucket:    m.objects.Bucket(),
+		}); err != nil {
+			_ = m.store.UpdateJob(ctx, jobID, domain.JobFailed, "enqueue failed")
+			_ = m.store.SetFileStatus(ctx, f.ID, domain.FileFailed)
+			return JobView{}, fmt.Errorf("enqueue job: %w", err)
+		}
+	}
+	j.Status = domain.JobQueued
+	j.Error = ""
+	return JobView{ID: j.ID, FileID: j.FileID, Status: j.Status, Error: j.Error, UpdatedAt: time.Now().UTC()}, nil
+}
+
+func (m *Media) jobOwnedBy(ctx context.Context, ownerSub, jobID string) (domain.Job, domain.File, error) {
+	j, err := m.store.GetJob(ctx, jobID)
+	if err != nil {
+		return domain.Job{}, domain.File{}, err
+	}
+	f, err := m.store.GetFile(ctx, j.FileID)
+	if err != nil {
+		return domain.Job{}, domain.File{}, err
+	}
+	if f.OwnerSub != ownerSub {
+		return domain.Job{}, domain.File{}, domain.ErrForbidden
+	}
+	return j, f, nil
+}
+
+func (m *Media) withJob(ctx context.Context, f domain.File) (FileView, error) {
+	view, err := m.fileView(ctx, f)
+	if err != nil {
+		return FileView{}, err
+	}
+	j, err := m.store.GetLatestJobByFile(ctx, f.ID)
+	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			return view, nil
+		}
+		return FileView{}, err
+	}
+	view.JobID = j.ID
+	view.JobStatus = j.Status
+	view.JobError = j.Error
+	return view, nil
 }
 
 func (m *Media) FinishJob(ctx context.Context, jobID string, variants domain.Variants, jobErr string) error {

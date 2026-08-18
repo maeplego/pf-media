@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { settleAction, dlqPayload } from "./settle.js";
+import { settleAction, dlqPayload, entriesFromAutoClaim } from "./settle.js";
 
 test("successful job is acked", () => {
   assert.equal(settleAction({ processed: true, finishReported: true }), "ack");
@@ -19,4 +19,11 @@ test("dlq payload keeps job id and error", () => {
   const parsed = JSON.parse(raw);
   assert.equal(parsed.jobId, "j1");
   assert.equal(parsed.error, "image too large");
+});
+
+test("normalizes xautoclaim array replies", () => {
+  const rows = entriesFromAutoClaim(["0-0", [["1-0", ["payload", "{}"]]]]);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].id, "1-0");
+  assert.equal(rows[0].message.payload, "{}");
 });

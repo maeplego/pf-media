@@ -45,7 +45,10 @@ type failQueue struct {
 
 func (q *failQueue) Enqueue(_ context.Context, _ queue.JobMessage) error {
 	q.n++
-	return q.err
+	if q.err != nil {
+		return q.err
+	}
+	return nil
 }
 
 func TestPresignCompleteQuota(t *testing.T) {
@@ -262,5 +265,41 @@ func TestShareLinkPassword(t *testing.T) {
 	}
 	if pub.Variants["orig"].URL == "" {
 		t.Fatal("expected variants after correct password")
+	}
+}
+
+func TestRetryFailedJob(t *testing.T) {
+	store := mem.New()
+	objs := &fakeObjects{}
+	q := &failQueue{}
+	svc := NewMedia(store, objs, q, 10_000, 5000, time.Minute)
+	fileID := completeOwnedPNG(t, svc, objs, "owner")
+	view, err := svc.GetFile(context.Background(), "owner", fileID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.JobID == "" {
+		t.Fatal("expected job id after complete")
+	}
+	if err := svc.FinishJob(context.Background(), view.JobID, nil, "boom"); err != nil {
+		t.Fatal(err)
+	}
+	_, err = svc.RetryJob(context.Background(), "other", view.JobID)
+	if err != domain.ErrForbidden {
+		t.Fatalf("expected forbidden, got %v", err)
+	}
+	got, err := svc.RetryJob(context.Background(), "owner", view.JobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != domain.JobQueued {
+		t.Fatalf("status %s", got.Status)
+	}
+	if q.n < 1 {
+		t.Fatal("expected re-enqueue")
+	}
+	_, err = svc.RetryJob(context.Background(), "owner", view.JobID)
+	if err != domain.ErrConflict {
+		t.Fatalf("retry of queued job: %v", err)
 	}
 }

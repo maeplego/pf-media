@@ -6,6 +6,9 @@ type FileView = {
   id: string;
   contentType: string;
   status: string;
+  jobId?: string;
+  jobStatus?: string;
+  jobError?: string;
   variants: Record<string, { url: string; contentType: string }>;
 };
 
@@ -62,6 +65,11 @@ async function createShare(sub: string, fileId: string, expiresInSeconds: number
   redirect(`/s/${data.token}`);
 }
 
+async function retryJob(sub: string, jobId: string) {
+  "use server";
+  await apiFetch(`/v1/jobs/${jobId}/retry`, sub, { method: "POST", body: "{}" });
+}
+
 export default async function Page({
   searchParams,
 }: {
@@ -93,13 +101,18 @@ export default async function Page({
           const thumb = f.variants.thumb?.url || f.variants.orig?.url;
           return (
             <li key={f.id} style={{ marginBottom: "1rem", borderBottom: "1px solid #ddd", paddingBottom: "1rem" }}>
-              <div>{f.id.slice(0, 8)}… — {f.status}</div>
+              <div>{f.id.slice(0, 8)}… — {f.status}{f.jobError ? ` (${f.jobError})` : ""}</div>
               {thumb ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={thumb} alt="" style={{ maxWidth: 160, marginTop: 8 }} />
               ) : (
                 <em>処理中…</em>
               )}
+              {f.status === "failed" && f.jobId ? (
+                <form action={async () => { "use server"; await retryJob(user, f.jobId!); }}>
+                  <button type="submit">処理を再実行</button>
+                </form>
+              ) : null}
               <div style={{ marginTop: 8 }}>
                 <form
                   action={async (fd) => {

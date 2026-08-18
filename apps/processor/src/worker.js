@@ -1,7 +1,7 @@
 import { createClient } from "redis";
 import * as Minio from "minio";
 import { processImage } from "./process.js";
-import { DLQ_STREAM, JOBS_STREAM, dlqPayload, settleAction } from "./settle.js";
+import { DLQ_STREAM, JOBS_STREAM, CLAIM_IDLE_MS, dlqPayload, entriesFromAutoClaim, settleAction } from "./settle.js";
 
 const redisURL = process.env.MEDIA_REDIS_URL || "redis://redis:6379/0";
 const apiBase = process.env.MEDIA_API_URL || "http://api:8090";
@@ -112,6 +112,21 @@ async function handle(client, entry) {
   }
 }
 
+async function claimIdle(client) {
+  try {
+    if (typeof client.xAutoClaim !== "function") {
+      return [];
+    }
+    const out = await client.xAutoClaim(JOBS_STREAM, group, consumer, CLAIM_IDLE_MS, "0-0", {
+      COUNT: 5,
+    });
+    return entriesFromAutoClaim(out);
+  } catch (e) {
+    console.error("xautoclaim", e);
+    return [];
+  }
+}
+
 async function main() {
   const client = createClient({ url: redisURL });
   client.on("error", (e) => console.error("redis", e));
@@ -125,6 +140,10 @@ async function main() {
 
   console.log("processor listening on", JOBS_STREAM);
   for (;;) {
+    const stuck = await claimIdle(client);
+    for (const entry of stuck) {
+      await handle(client, entry);
+    }
     const res = await client.xReadGroup(group, consumer, [{ key: JOBS_STREAM, id: ">" }], {
       COUNT: 1,
       BLOCK: 5000,

@@ -45,6 +45,9 @@ Compose では API に `extra_hosts: localhost:host-gateway` を付け、presign
 - `GET /v1/s/:token` — ログイン不要。期限切れは 410。パスワード付きは `X-Share-Password` が必要（無いと 401）
 - `GET /v1/s/:token/download` — 署名付き GET へ 302（同じパスワードヘッダ）
 
+- `GET /v1/jobs/:id` — 所有者のみ。状態とエラー
+- `POST /v1/jobs/:id/retry` — 失敗ジョブを本線キューへ戻す
+
 `purpose`: `wiki`, `product`, `blog`, `chat`, `drive`
 
 ## 制限（学習用）

@@ -151,6 +151,23 @@ func (s *Store) GetJob(ctx context.Context, id string) (domain.Job, error) {
 	return j, nil
 }
 
+func (s *Store) GetLatestJobByFile(ctx context.Context, fileID string) (domain.Job, error) {
+	row := s.pool.QueryRow(ctx, `
+		SELECT id, file_id, status, error, updated_at
+		FROM jobs WHERE file_id = $1
+		ORDER BY updated_at DESC LIMIT 1`, fileID)
+	var j domain.Job
+	var st string
+	if err := row.Scan(&j.ID, &j.FileID, &st, &j.Error, &j.UpdatedAt); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.Job{}, domain.ErrNotFound
+		}
+		return domain.Job{}, err
+	}
+	j.Status = domain.JobStatus(st)
+	return j, nil
+}
+
 func (s *Store) UpdateJob(ctx context.Context, id string, status domain.JobStatus, errMsg string) error {
 	tag, err := s.pool.Exec(ctx, `
 		UPDATE jobs SET status = $2, error = $3, updated_at = $4 WHERE id = $1`,
