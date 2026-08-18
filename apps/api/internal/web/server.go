@@ -164,6 +164,8 @@ func writeErr(w http.ResponseWriter, err error) {
 		http.Error(w, "quota exceeded", http.StatusForbidden)
 	case errors.Is(err, domain.ErrInvalid):
 		http.Error(w, "invalid", http.StatusBadRequest)
+	case errors.Is(err, domain.ErrTooLarge):
+		http.Error(w, "too large", http.StatusRequestEntityTooLarge)
 	case errors.Is(err, domain.ErrConflict):
 		http.Error(w, "conflict", http.StatusConflict)
 	default:

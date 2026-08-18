@@ -2,10 +2,12 @@ package service
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/portfolio/pf-media/api/internal/domain"
+	"github.com/portfolio/pf-media/api/internal/queue"
 	mem "github.com/portfolio/pf-media/api/internal/store/memory"
 )
 
@@ -35,6 +37,16 @@ func (f *fakeObjects) Delete(_ context.Context, key string) error {
 }
 
 func (f *fakeObjects) Bucket() string { return "media" }
+
+type failQueue struct {
+	err error
+	n   int
+}
+
+func (q *failQueue) Enqueue(_ context.Context, _ queue.JobMessage) error {
+	q.n++
+	return q.err
+}
 
 func TestPresignCompleteQuota(t *testing.T) {
 	store := mem.New()
@@ -80,5 +92,63 @@ func TestCompleteForbidden(t *testing.T) {
 	_, err := svc.Complete(context.Background(), "other", res.FileID, "")
 	if err != domain.ErrForbidden {
 		t.Fatalf("expected forbidden, got %v", err)
+	}
+}
+
+func TestPresignTooLarge(t *testing.T) {
+	svc := NewMedia(mem.New(), &fakeObjects{}, nil, 10_000, 100, time.Minute)
+	_, err := svc.Presign(context.Background(), "u", PresignInput{
+		ContentType: "image/png", Size: 101, Purpose: "drive",
+	})
+	if err != domain.ErrTooLarge {
+		t.Fatalf("expected too large, got %v", err)
+	}
+}
+
+func TestCompleteTooLargeDeletesObject(t *testing.T) {
+	store := mem.New()
+	objs := &fakeObjects{}
+	svc := NewMedia(store, objs, nil, 10_000, 50, time.Minute)
+	res, err := svc.Presign(context.Background(), "u", PresignInput{
+		ContentType: "image/png", Size: 40, Purpose: "drive",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	objs.keys[res.ObjectKey] = 80
+	_, err = svc.Complete(context.Background(), "u", res.FileID, "etag")
+	if err != domain.ErrTooLarge {
+		t.Fatalf("expected too large, got %v", err)
+	}
+	if _, ok := objs.keys[res.ObjectKey]; ok {
+		t.Fatal("oversized object should be deleted")
+	}
+}
+
+func TestCompleteEnqueueFailureMarksFailed(t *testing.T) {
+	store := mem.New()
+	objs := &fakeObjects{}
+	q := &failQueue{err: errors.New("redis down")}
+	svc := NewMedia(store, objs, q, 10_000, 5000, time.Minute)
+	res, err := svc.Presign(context.Background(), "u", PresignInput{
+		ContentType: "image/png", Size: 10, Purpose: "drive",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	objs.keys[res.ObjectKey] = 10
+	_, err = svc.Complete(context.Background(), "u", res.FileID, "etag")
+	if err == nil {
+		t.Fatal("expected enqueue error")
+	}
+	if q.n != 1 {
+		t.Fatalf("enqueue called %d times", q.n)
+	}
+	f, err := store.GetFile(context.Background(), res.FileID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.Status != domain.FileFailed {
+		t.Fatalf("expected failed, got %s", f.Status)
 	}
 }

@@ -96,8 +96,11 @@ func NewMedia(store domain.Store, objects ObjectStore, q JobQueue, quotaLimit, m
 }
 
 func (m *Media) Presign(ctx context.Context, ownerSub string, in PresignInput) (PresignResult, error) {
-	if in.Size <= 0 || in.Size > m.maxUpload {
+	if in.Size <= 0 {
 		return PresignResult{}, domain.ErrInvalid
+	}
+	if in.Size > m.maxUpload {
+		return PresignResult{}, domain.ErrTooLarge
 	}
 	if !mimeutil.AllowedImage(in.ContentType) {
 		return PresignResult{}, domain.ErrInvalid
@@ -152,7 +155,7 @@ func (m *Media) Complete(ctx context.Context, ownerSub, fileID, etag string) (Fi
 	}
 	if size > m.maxUpload {
 		_ = m.objects.Delete(ctx, f.ObjectKey)
-		return FileView{}, domain.ErrInvalid
+		return FileView{}, domain.ErrTooLarge
 	}
 	_ = etag
 	_ = gotETag
@@ -178,15 +181,21 @@ func (m *Media) Complete(ctx context.Context, ownerSub, fileID, etag string) (Fi
 		if err := m.store.CreateJob(ctx, j); err != nil {
 			return FileView{}, err
 		}
-		_ = m.store.SetFileStatus(ctx, fileID, domain.FilePending)
+		if err := m.store.SetFileStatus(ctx, fileID, domain.FilePending); err != nil {
+			return FileView{}, err
+		}
 		f.Status = domain.FilePending
 		if m.queue != nil {
-			_ = m.queue.Enqueue(ctx, queue.JobMessage{
+			if err := m.queue.Enqueue(ctx, queue.JobMessage{
 				JobID:     jobID,
 				FileID:    fileID,
 				ObjectKey: f.ObjectKey,
 				Bucket:    m.objects.Bucket(),
-			})
+			}); err != nil {
+				_ = m.store.UpdateJob(ctx, jobID, domain.JobFailed, "enqueue failed")
+				_ = m.store.SetFileStatus(ctx, fileID, domain.FileFailed)
+				return FileView{}, fmt.Errorf("enqueue job: %w", err)
+			}
 		}
 	}
 	return m.fileView(ctx, f)

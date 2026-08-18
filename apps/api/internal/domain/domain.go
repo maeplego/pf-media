@@ -14,6 +14,7 @@ var (
 	ErrConflict  = errors.New("conflict")
 	ErrQuota     = errors.New("quota exceeded")
 	ErrInvalid   = errors.New("invalid")
+	ErrTooLarge  = errors.New("too large")
 )
 
 type FileStatus string
