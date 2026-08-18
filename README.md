@@ -31,7 +31,7 @@ Compose では API に `extra_hosts: localhost:host-gateway` を付け、presign
 ## デモ手順
 
 1. http://localhost:3004 を開く（ユーザー A）
-2. 画像をアップロード → 数秒後サムネイル表示
+2. 画像をアップロード → 処理中は自動更新されサムネイルが表示される。容量は画面上部
 3. 「1時間共有」で公開ページへ。パスワード欄は空でも、入れて守ってもよい
 4. 「1分で期限切れ」のリンクは、期限後に 410 になる
 5. 別ユーザー B に切り替え、A のマイドライブ一覧には A のファイルが出ない
@@ -40,7 +40,9 @@ Compose では API に `extra_hosts: localhost:host-gateway` を付け、presign
 
 - `POST /v1/uploads/presign` — `{ contentType, size, purpose }`
 - `POST /v1/uploads/complete` — `{ fileId, etag }`
+- `GET /v1/files` — 所有者の一覧と `quota`
 - `GET /v1/files/:id` — メタデータと派生 URL（署名付き GET）
+- `GET /v1/quota` — `{ usedBytes, limitBytes }`
 - `POST /v1/share-links` — `{ fileId, expiresInSeconds, password? }`（所有者のみ。password は任意）
 - `GET /v1/s/:token` — ログイン不要。期限切れは 410。パスワード付きは `X-Share-Password` が必要（無いと 401）
 - `GET /v1/s/:token/download` — 署名付き GET へ 302（同じパスワードヘッダ）

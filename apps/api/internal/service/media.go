@@ -97,6 +97,11 @@ type PublicFile struct {
 	ExpiresAt   time.Time              `json:"expiresAt"`
 }
 
+type QuotaView struct {
+	UsedBytes  int64 `json:"usedBytes"`
+	LimitBytes int64 `json:"limitBytes"`
+}
+
 type VariantView struct {
 	URL         string `json:"url"`
 	ContentType string `json:"contentType"`
@@ -375,6 +380,14 @@ func (m *Media) ListFiles(ctx context.Context, ownerSub string, limit int) ([]Fi
 		out = append(out, v)
 	}
 	return out, nil
+}
+
+func (m *Media) GetQuota(ctx context.Context, ownerSub string) (QuotaView, error) {
+	used, err := m.store.GetQuotaUsed(ctx, ownerSub)
+	if err != nil {
+		return QuotaView{}, err
+	}
+	return QuotaView{UsedBytes: used, LimitBytes: m.quotaLimit}, nil
 }
 
 func (m *Media) GetJob(ctx context.Context, ownerSub, jobID string) (JobView, error) {

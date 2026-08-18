@@ -35,6 +35,8 @@ func (s *Server) Routes(mw *auth.Middleware, processorToken string) http.Handler
 			s.complete(w, r)
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/files":
 			s.listFiles(w, r)
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/quota":
+			s.getQuota(w, r)
 		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/v1/files/"):
 			s.getFile(w, r)
 		case r.Method == http.MethodPost && r.URL.Path == "/v1/share-links":
@@ -115,7 +117,26 @@ func (s *Server) listFiles(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"files": files})
+	quota, err := s.media.GetQuota(r.Context(), u.Sub)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"files": files, "quota": quota})
+}
+
+func (s *Server) getQuota(w http.ResponseWriter, r *http.Request) {
+	u, ok := auth.UserFrom(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	quota, err := s.media.GetQuota(r.Context(), u.Sub)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, quota)
 }
 
 func (s *Server) getFile(w http.ResponseWriter, r *http.Request) {

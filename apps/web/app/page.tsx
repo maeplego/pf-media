@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { PollPending } from "./PollPending";
 
 const API = process.env.MEDIA_API_URL || "http://localhost:8090";
 
@@ -28,9 +29,23 @@ async function apiFetch(path: string, sub: string, init?: RequestInit) {
   return res.json();
 }
 
-async function listFiles(sub: string): Promise<FileView[]> {
+type QuotaView = {
+  usedBytes: number;
+  limitBytes: number;
+};
+
+async function listDrive(sub: string): Promise<{ files: FileView[]; quota: QuotaView }> {
   const data = await apiFetch("/v1/files", sub);
-  return data.files as FileView[];
+  return {
+    files: (data.files as FileView[]) || [],
+    quota: data.quota || { usedBytes: 0, limitBytes: 0 },
+  };
+}
+
+function formatBytes(n: number) {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 async function uploadFile(sub: string, file: File) {
@@ -77,14 +92,21 @@ export default async function Page({
 }) {
   const sp = await searchParams;
   const user = sp.user || "demo-user-a";
-  const files = await listFiles(user).catch(() => [] as FileView[]);
+  const { files, quota } = await listDrive(user).catch(() => ({
+    files: [] as FileView[],
+    quota: { usedBytes: 0, limitBytes: 0 },
+  }));
+  const pending = files.some((f) => f.status === "pending");
 
   return (
     <div>
       <p>
         ユーザー: <strong>{user}</strong>{" "}
         <a href="?user=demo-user-a">A</a> · <a href="?user=demo-user-b">B</a>
+        {" — "}
+        容量 {formatBytes(quota.usedBytes)} / {formatBytes(quota.limitBytes)}
       </p>
+      <PollPending active={pending} />
       <form
         action={async (fd) => {
           "use server";
@@ -133,7 +155,7 @@ export default async function Page({
         })}
       </ul>
       <p style={{ color: "#666", fontSize: 14 }}>
-        数秒後にリロードするとサムネイルが表示されます。共有 URL はログイン不要です。ユーザー B で開いても同じトークンなら見えます。
+        処理中のファイルがあるあいだは数秒ごとに自動更新します。共有 URL はログイン不要です。
       </p>
     </div>
   );

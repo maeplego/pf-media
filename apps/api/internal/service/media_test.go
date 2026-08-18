@@ -303,3 +303,24 @@ func TestRetryFailedJob(t *testing.T) {
 		t.Fatalf("retry of queued job: %v", err)
 	}
 }
+
+func TestGetQuotaAfterComplete(t *testing.T) {
+	store := mem.New()
+	objs := &fakeObjects{}
+	svc := NewMedia(store, objs, nil, 10_000, 5000, time.Minute)
+	q, err := svc.GetQuota(context.Background(), "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if q.UsedBytes != 0 || q.LimitBytes != 10_000 {
+		t.Fatalf("empty quota %+v", q)
+	}
+	_ = completeOwnedPNG(t, svc, objs, "owner")
+	q, err = svc.GetQuota(context.Background(), "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if q.UsedBytes != 10 {
+		t.Fatalf("used %d", q.UsedBytes)
+	}
+}
