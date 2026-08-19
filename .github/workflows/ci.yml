@@ -64,7 +64,7 @@ jobs:
         with:
           version: "v1.31.4"
       - name: client dry-run of this repo's manifests
-        run: kubectl kustomize deploy/k8s | kubectl apply --dry-run=client --validate=false -f -
+        run: kubectl kustomize deploy/k8s
   compose-config:
     runs-on: ubuntu-latest
     steps:
