@@ -1,11 +1,3 @@
-# P03 Kubernetes manifests
+# Kubernetes マニフェスト（P03 media）
 
-api / web / processor。環境変数の本番値（DB URL、OIDC）は `pf-cloud-k8s` overlay の patch で上書きする。
-
-```powershell
-cd ..\..\pf-cloud-k8s
-.\scripts\build-images.ps1
-.\scripts\up.ps1
-```
-
-Compose 単体デモは従来どおり `deploy/compose.yaml`。
+api / web / processor です。DB URL や OIDC は overlay が上書きします。このフォルダだけを apply しないでください。起動は [pf-cloud-k8s](https://github.com/maeplego/pf-cloud-k8s) からです。単体デモは `deploy/compose.yaml` です。
