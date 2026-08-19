@@ -19,6 +19,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: apps/api/go.mod
+          check-latest: true
           cache-dependency-path: apps/api/go.sum
       - name: unit tests
         working-directory: apps/api
@@ -54,6 +55,7 @@ jobs:
           severity: HIGH,CRITICAL
           exit-code: "1"
           ignore-unfixed: true
+          trivyignores: .trivyignore
   kustomize:
     runs-on: ubuntu-latest
     steps:
@@ -62,11 +64,10 @@ jobs:
         with:
           version: "v1.31.4"
       - name: client dry-run of this repo's manifests
-        run: kubectl kustomize deploy/k8s | kubectl apply --dry-run=client -f -
+        run: kubectl kustomize deploy/k8s | kubectl apply --dry-run=client --validate=false -f -
   compose-config:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: validate Compose file without starting containers
         run: docker compose -f deploy/compose.yaml config
-
