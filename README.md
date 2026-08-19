@@ -2,7 +2,7 @@
 
 P03 のメディア基盤です。**本番 CDN / ウイルススキャン基盤の置き換えではありません。**
 
-オブジェクト本体は開発時 **Garage**（S3 互換）、本番は S3 / R2。メタデータと権限は PostgreSQL、画像派生は非同期 processor（sharp）が担当します。
+人間向け書類: `project/portfolio-plan/media-platform/docs/`。オブジェクトは開発時 **Garage**（S3 互換）。メタデータは PostgreSQL、画像派生は非同期 processor。
 
 ```
 apps/api/        presign / complete / ファイル API（Go）
