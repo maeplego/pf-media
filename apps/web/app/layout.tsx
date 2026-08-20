@@ -1,11 +1,25 @@
+import "./globals.css";
+
 export const dynamic = "force-dynamic";
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="ja">
-      <body style={{ fontFamily: "system-ui, sans-serif", margin: "2rem", maxWidth: 720 }}>
-        <h1>Media Drive</h1>
-        {children}
+      <body>
+        <div className="site-shell">
+          <header className="site-header">
+            <div className="site-brand">
+              <a href="/" className="brand-link">
+                <strong>Media Drive</strong>
+              </a>
+              <span className="muted">P03 学習用ファイルドライブ</span>
+            </div>
+            <nav className="site-nav">
+              <a href="/">ドライブ</a>
+            </nav>
+          </header>
+          <main className="site-main">{children}</main>
+        </div>
       </body>
     </html>
   );

@@ -84,49 +84,56 @@ export default async function Page({
   const pending = files.some((f) => f.status === "pending");
 
   return (
-    <div>
-      <p>
-        ユーザー: <strong>{session!.displayName || session!.sub}</strong>
-        {session!.devMode ? (
-          <>
-            {" "}
-            <a href={driveHref(undefined, "demo-user-a")}>A</a> · <a href={driveHref(undefined, "demo-user-b")}>B</a>
-            <span style={{ color: "#666" }}>（開発モード: A のファイルは B には出ません）</span>
-          </>
-        ) : (
-          <>
-            {" "}
-            <form action="/logout" method="post" style={{ display: "inline" }}>
-              <button type="submit">ログアウト</button>
-            </form>
-          </>
-        )}
-      </p>
+    <>
+      <section className="hero">
+        <h1 className="page-title">ドライブ</h1>
+        <p className="page-lead">
+          ユーザー: <strong>{session!.displayName || session!.sub}</strong>
+          {session!.devMode ? (
+            <>
+              {" "}
+              <a href={driveHref(undefined, "demo-user-a")}>A</a> · <a href={driveHref(undefined, "demo-user-b")}>B</a>
+              <span className="muted">（開発モード: A のファイルは B には出ません）</span>
+            </>
+          ) : (
+            <>
+              {" "}
+              <form action="/logout" method="post" className="inline-form">
+                <button type="submit" className="btn btn-secondary">
+                  ログアウト
+                </button>
+              </form>
+            </>
+          )}
+        </p>
+      </section>
       {sp.error ? (
-        <p role="alert" style={{ color: "crimson" }}>
+        <p role="alert" className="error">
           ログインエラー: {sp.error}
         </p>
       ) : null}
-      <p>
-        容量 <strong>{formatBytes(quota.usedBytes)}</strong> / {formatBytes(quota.limitBytes)}
-        <span style={{ color: "#666" }}>（アップロードで増え、削除で戻ります）</span>
-      </p>
-      <p>
-        <a href={driveHref(undefined, devUser)}>ルート</a>
-        {current?.parentId ? (
-          <>
-            {" / "}
-            <a href={driveHref(current.parentId, devUser)}>上へ</a>
-          </>
-        ) : null}
-        {current?.name ? ` / ${current.name}` : ""}
-      </p>
-      <PollPending active={pending} />
-      <UploadForm folderId={folderId} devUser={devUser} />
-      <CreateFolderForm parentId={folderId} devUser={devUser} />
-      <ul style={{ listStyle: "none", padding: 0, marginTop: "1.5rem" }}>
+      <section className="card">
+        <p>
+          容量 <strong>{formatBytes(quota.usedBytes)}</strong> / {formatBytes(quota.limitBytes)}
+          <span className="muted">（アップロードで増え、削除で戻ります）</span>
+        </p>
+        <p className="breadcrumb">
+          <a href={driveHref(undefined, devUser)}>ルート</a>
+          {current?.parentId ? (
+            <>
+              {" / "}
+              <a href={driveHref(current.parentId, devUser)}>上へ</a>
+            </>
+          ) : null}
+          {current?.name ? ` / ${current.name}` : ""}
+        </p>
+        <PollPending active={pending} />
+        <UploadForm folderId={folderId} devUser={devUser} />
+        <CreateFolderForm parentId={folderId} devUser={devUser} />
+      </section>
+      <ul className="file-list">
         {folders.map((dir) => (
-          <li key={dir.id} style={{ marginBottom: "0.75rem" }}>
+          <li key={dir.id} className="file-item card">
             📁 <a href={driveHref(dir.id, devUser)}>{dir.name}</a>
             <DeleteFolderButton folderId={dir.id} folderName={dir.name} devUser={devUser} />
           </li>
@@ -136,18 +143,18 @@ export default async function Page({
           const download = f.variants.orig?.url;
           const isImage = f.contentType.startsWith("image/");
           return (
-            <li key={f.id} style={{ marginBottom: "1rem", borderBottom: "1px solid #ddd", paddingBottom: "1rem" }}>
+            <li key={f.id} className="file-item card">
               <div>
                 {f.id.slice(0, 8)}… — {f.status} ({formatBytes(f.sizeBytes || 0)}) — {f.contentType}
                 {f.jobError ? ` (${f.jobError})` : ""}
               </div>
               {thumb ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={thumb} alt="" width={160} style={{ width: 160, height: "auto", marginTop: 8, background: "#eee" }} />
+                <img src={thumb} alt="" width={160} className="file-thumb" />
               ) : isImage ? (
                 <em>処理中… サムネは processor 完了後に出ます</em>
               ) : download ? (
-                <p style={{ marginTop: 8 }}>
+                <p>
                   <a href={download} target="_blank" rel="noreferrer">
                     ダウンロード
                   </a>
@@ -155,28 +162,28 @@ export default async function Page({
               ) : null}
               {f.status === "failed" && f.jobId ? (
                 <form action={retryDriveJob.bind(null, f.jobId, devUser)}>
-                  <button type="submit">処理を再実行</button>
+                  <button type="submit" className="btn btn-secondary">
+                    処理を再実行
+                  </button>
                 </form>
               ) : null}
               <DeleteButton fileId={f.id} devUser={devUser} />
-              <div style={{ marginTop: 8 }}>
-                <form action={submitDriveShare.bind(null, f.id, devUser)} style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                  <input type="password" name="password" placeholder="パスワード（任意）" autoComplete="new-password" />
-                  <button type="submit" name="ttl" value="3600">
-                    1時間共有
-                  </button>
-                  <button type="submit" name="ttl" value="60">
-                    1分で期限切れ
-                  </button>
-                </form>
-              </div>
+              <form action={submitDriveShare.bind(null, f.id, devUser)} className="share-form">
+                <input type="password" name="password" placeholder="パスワード（任意）" autoComplete="new-password" />
+                <button type="submit" className="btn" name="ttl" value="3600">
+                  1時間共有
+                </button>
+                <button type="submit" className="btn btn-secondary" name="ttl" value="60">
+                  1分で期限切れ
+                </button>
+              </form>
             </li>
           );
         })}
       </ul>
-      <p style={{ color: "#666", fontSize: 14 }}>
+      <p className="muted">
         処理中のファイルがあるあいだは数秒ごとに自動更新します。数バイトのテスト画像だとサムネはほぼ見えません。共有 URL はログイン不要です。
       </p>
-    </div>
+    </>
   );
 }
