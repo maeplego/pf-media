@@ -8,6 +8,7 @@ import (
 )
 
 type Config struct {
+	Env                string
 	HTTPAddr           string
 	DatabaseURL        string
 	RedisURL           string
@@ -28,8 +29,15 @@ type Config struct {
 	PresignTTL         int // seconds
 }
 
+const (
+	EnvDevelopment = "development"
+	EnvStaging     = "staging"
+	EnvProduction  = "production"
+)
+
 func FromEnv() (Config, error) {
 	cfg := Config{
+		Env:              normalizeEnv(os.Getenv("MEDIA_ENV")),
 		HTTPAddr:         envOr("MEDIA_HTTP_ADDR", ":8090"),
 		DatabaseURL:      strings.TrimSpace(os.Getenv("MEDIA_DATABASE_URL")),
 		RedisURL:         envOr("MEDIA_REDIS_URL", "redis://redis:6379/0"),
@@ -62,7 +70,29 @@ func FromEnv() (Config, error) {
 	if cfg.ProcessorToken == "" {
 		return Config{}, fmt.Errorf("MEDIA_PROCESSOR_TOKEN is required")
 	}
+	if (cfg.Env == EnvStaging || cfg.Env == EnvProduction) && cfg.DevAuth {
+		return Config{}, fmt.Errorf("MEDIA_DEV_AUTH must be false when MEDIA_ENV=%s", cfg.Env)
+	}
+	if (cfg.Env == EnvStaging || cfg.Env == EnvProduction) && cfg.OIDCIssuer == "" {
+		return Config{}, fmt.Errorf("OIDC_ISSUER is required when MEDIA_ENV=%s", cfg.Env)
+	}
+	if cfg.Env != EnvDevelopment && cfg.Env != EnvStaging && cfg.Env != EnvProduction {
+		return Config{}, fmt.Errorf("unsupported MEDIA_ENV %q (use development, staging, or production)", cfg.Env)
+	}
 	return cfg, nil
+}
+
+func normalizeEnv(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "", "dev", "development", "local", "demo":
+		return EnvDevelopment
+	case "staging", "stage":
+		return EnvStaging
+	case "production", "prod":
+		return EnvProduction
+	default:
+		return strings.ToLower(strings.TrimSpace(v))
+	}
 }
 
 func envOr(key, fallback string) string {
