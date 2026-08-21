@@ -1,4 +1,4 @@
-# pf-media
+﻿# pf-media
 
 学習用のメディア基盤です。アップロード用の署名 URL、メタデータ（PostgreSQL）、画像のリサイズ / WebP / EXIF 除去を非同期で行います。オブジェクト保存は開発時 Garage（S3 互換）です。**本番 CDN やウイルススキャン基盤の置き換えではありません。**
 
@@ -50,3 +50,13 @@ Compose 起動中は API の e2e も実 Garage を叩きます。未起動なら
 [pf-identity](https://github.com/maeplego/pf-identity) を起動し、管理画面で public クライアント `pf-media-web`（redirect `http://localhost:3004/callback`）を登録します。`deploy/.env` に OIDC 変数を入れ、`MEDIA_DEV_AUTH=false` にして Compose を再ビルドします。
 
 設計の詳細は [portfolio-plan](https://github.com/maeplego/portfolio-plan) の `portfolio-plan/media-platform/docs/` です。
+
+## ライセンスと利用条件
+
+本リポジトリは **デモ・学習・社内評価用** です。現状品質に **保証はありません**。
+
+- 許可: クローン、ローカル実行、学習、非本番の評価
+- 別契約が必要: 本番運用、有償サービスへの組込み、再販・托管の提供
+
+詳細は [LICENSE](./LICENSE) と [licensing.md](https://github.com/maeplego/portfolio-plan/blob/master/portfolio-plan/licensing.md) を参照してください。
+
