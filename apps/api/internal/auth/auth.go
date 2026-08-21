@@ -17,7 +17,8 @@ import (
 type ctxKey struct{}
 
 type User struct {
-	Sub string
+	Sub   string
+	OrgID string
 }
 
 func WithUser(ctx context.Context, u User) context.Context {
@@ -59,7 +60,11 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 
 func (m *Middleware) authenticate(r *http.Request) (User, error) {
 	if h := strings.TrimSpace(r.Header.Get("X-Dev-User-Sub")); h != "" && m.devAuth {
-		return User{Sub: h}, nil
+		orgID := strings.TrimSpace(r.Header.Get("X-Dev-User-Org"))
+		if orgID == "" {
+			orgID = "org-demo-a"
+		}
+		return User{Sub: h, OrgID: orgID}, nil
 	}
 	authz := strings.TrimSpace(r.Header.Get("Authorization"))
 	if !strings.HasPrefix(authz, "Bearer ") {
@@ -95,7 +100,16 @@ func (m *Middleware) authenticateJWT(ctx context.Context, token string) (User, e
 	if sub == "" {
 		return User{}, fmt.Errorf("empty sub")
 	}
-	return User{Sub: sub}, nil
+	u := User{Sub: sub}
+	if v, ok := tok.Get("org_id"); ok {
+		if s, ok := v.(string); ok {
+			u.OrgID = strings.TrimSpace(s)
+		}
+	}
+	if u.OrgID == "" {
+		return User{}, fmt.Errorf("org_id required")
+	}
+	return u, nil
 }
 
 func (m *Middleware) authenticateUserInfo(ctx context.Context, token string) (User, error) {
@@ -117,7 +131,8 @@ func (m *Middleware) authenticateUserInfo(ctx context.Context, token string) (Us
 		return User{}, err
 	}
 	var ui struct {
-		Sub string `json:"sub"`
+		Sub   string `json:"sub"`
+		OrgID string `json:"org_id"`
 	}
 	if err := json.Unmarshal(body, &ui); err != nil {
 		return User{}, err
@@ -125,7 +140,11 @@ func (m *Middleware) authenticateUserInfo(ctx context.Context, token string) (Us
 	if ui.Sub == "" {
 		return User{}, fmt.Errorf("empty sub")
 	}
-	return User{Sub: ui.Sub}, nil
+	orgID := strings.TrimSpace(ui.OrgID)
+	if orgID == "" {
+		return User{}, fmt.Errorf("org_id required")
+	}
+	return User{Sub: ui.Sub, OrgID: orgID}, nil
 }
 
 func (m *Middleware) jwksSet(ctx context.Context) (jwk.Set, error) {

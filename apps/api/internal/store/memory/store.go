@@ -47,12 +47,12 @@ func (s *Store) GetFile(_ context.Context, id string) (domain.File, error) {
 	return f, nil
 }
 
-func (s *Store) ListFilesByOwner(_ context.Context, ownerSub, folderID string, limit int) ([]domain.File, error) {
+func (s *Store) ListFilesByOwner(_ context.Context, ownerSub, orgID, folderID string, limit int) ([]domain.File, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	out := make([]domain.File, 0)
 	for _, f := range s.files {
-		if f.OwnerSub == ownerSub && f.FolderID == folderID {
+		if f.OwnerSub == ownerSub && f.OrgID == orgID && f.FolderID == folderID {
 			out = append(out, f)
 		}
 	}
@@ -218,7 +218,7 @@ func (s *Store) CreateFolder(_ context.Context, f domain.Folder) error {
 		return domain.ErrConflict
 	}
 	for _, existing := range s.folders {
-		if existing.OwnerSub == f.OwnerSub && existing.ParentID == f.ParentID && existing.Name == f.Name {
+		if existing.OwnerSub == f.OwnerSub && existing.OrgID == f.OrgID && existing.ParentID == f.ParentID && existing.Name == f.Name {
 			return domain.ErrConflict
 		}
 	}
@@ -236,12 +236,12 @@ func (s *Store) GetFolder(_ context.Context, id string) (domain.Folder, error) {
 	return f, nil
 }
 
-func (s *Store) ListFolders(_ context.Context, ownerSub, parentID string) ([]domain.Folder, error) {
+func (s *Store) ListFolders(_ context.Context, ownerSub, orgID, parentID string) ([]domain.Folder, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	out := make([]domain.Folder, 0)
 	for _, f := range s.folders {
-		if f.OwnerSub == ownerSub && f.ParentID == parentID {
+		if f.OwnerSub == ownerSub && f.OrgID == orgID && f.ParentID == parentID {
 			out = append(out, f)
 		}
 	}

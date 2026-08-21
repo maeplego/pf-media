@@ -1,10 +1,11 @@
 import { unstable_noStore as noStore } from "next/cache";
 import { redirect } from "next/navigation";
 
-import { apiFetchForPage, retryDriveJob, submitDriveShare } from "./actions";
+import { apiFetchForPage, retryDriveJob, submitDriveShare, switchActiveOrg } from "./actions";
 import { CreateFolderForm } from "./CreateFolderForm";
 import { DeleteButton } from "./DeleteButton";
 import { DeleteFolderButton } from "./DeleteFolderButton";
+import { OrgSwitcher } from "./OrgSwitcher";
 import { PollPending } from "./PollPending";
 import { UploadForm } from "./UploadForm";
 import { getDriveSession } from "../lib/session";
@@ -83,12 +84,23 @@ export default async function Page({
     : null;
   const pending = files.some((f) => f.status === "pending");
 
+  async function switchOrgAction(orgId: string) {
+    "use server";
+    await switchActiveOrg(orgId, devUser);
+    redirect(devUser ? `/?user=${encodeURIComponent(devUser)}` : "/");
+  }
+
   return (
     <>
       <section className="hero">
         <h1 className="page-title">ドライブ</h1>
         <p className="page-lead">
           ユーザー: <strong>{session!.displayName || session!.sub}</strong>
+          <OrgSwitcher
+            currentOrgId={session!.orgId}
+            organizations={session!.organizations || []}
+            onSwitch={switchOrgAction}
+          />
           {session!.devMode ? (
             <>
               {" "}

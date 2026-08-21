@@ -46,6 +46,7 @@ type Variants map[string]Variant
 type File struct {
 	ID          string
 	OwnerSub    string
+	OrgID       string
 	FolderID    string
 	ObjectKey   string
 	ContentType string
@@ -59,6 +60,7 @@ type File struct {
 type Folder struct {
 	ID        string
 	OwnerSub  string
+	OrgID     string
 	ParentID  string
 	Name      string
 	CreatedAt time.Time
@@ -77,6 +79,7 @@ type ShareLink struct {
 	Token        string
 	FileID       string
 	OwnerSub     string
+	OrgID        string
 	PasswordHash string
 	ExpiresAt    time.Time
 	CreatedAt    time.Time
@@ -105,7 +108,7 @@ func ParseVariants(raw json.RawMessage) Variants {
 type Store interface {
 	CreatePendingFile(ctx context.Context, f File) error
 	GetFile(ctx context.Context, id string) (File, error)
-	ListFilesByOwner(ctx context.Context, ownerSub, folderID string, limit int) ([]File, error)
+	ListFilesByOwner(ctx context.Context, ownerSub, orgID, folderID string, limit int) ([]File, error)
 	MarkFileReady(ctx context.Context, id string, size int64) error
 	SetFileStatus(ctx context.Context, id string, status FileStatus) error
 	UpdateVariants(ctx context.Context, id string, variants Variants) error
@@ -120,7 +123,7 @@ type Store interface {
 	GetShareLinkByToken(ctx context.Context, token string) (ShareLink, error)
 	CreateFolder(ctx context.Context, f Folder) error
 	GetFolder(ctx context.Context, id string) (Folder, error)
-	ListFolders(ctx context.Context, ownerSub, parentID string) ([]Folder, error)
+	ListFolders(ctx context.Context, ownerSub, orgID, parentID string) ([]Folder, error)
 	FolderIsEmpty(ctx context.Context, folderID string) (bool, error)
 	DeleteFolder(ctx context.Context, id string) error
 }

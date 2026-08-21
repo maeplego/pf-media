@@ -78,13 +78,13 @@ func TestPublicShareDoesNotRequireLogin(t *testing.T) {
 	svc := service.NewMedia(store, pngStub(), nil, 10_000, 5000, time.Minute)
 	ctx := context.Background()
 	if err := store.CreatePendingFile(ctx, domain.File{
-		ID: "f1", OwnerSub: "owner", ObjectKey: "user/owner/f1/orig",
+		ID: "f1", OwnerSub: "owner", OrgID: "org-demo-a", ObjectKey: "user/owner/f1/orig",
 		ContentType: "image/png", SizeBytes: 10, Purpose: "drive",
 		Status: domain.FileReady, CreatedAt: time.Now().UTC(),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	link, err := svc.CreateShareLink(ctx, "owner", "f1", time.Hour, "")
+	link, err := svc.CreateShareLink(ctx, "owner", "org-demo-a", "f1", time.Hour, "")
 	if err != nil {
 		t.Fatal(err)
 	}

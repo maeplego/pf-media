@@ -15,7 +15,11 @@ function authHeaders(session: DriveSession): Record<string, string> {
   if (session.accessToken) {
     return { Authorization: `Bearer ${session.accessToken}` };
   }
-  return { "X-Dev-User-Sub": session.sub };
+  const headers: Record<string, string> = { "X-Dev-User-Sub": session.sub };
+  if (session.orgId) {
+    headers["X-Dev-User-Org"] = session.orgId;
+  }
+  return headers;
 }
 
 async function apiFetch(path: string, session: DriveSession, init?: RequestInit) {
@@ -44,6 +48,66 @@ async function apiFetch(path: string, session: DriveSession, init?: RequestInit)
 export async function apiFetchForPage(path: string, devUser?: string) {
   const session = await requireDriveSession(devUser);
   return apiFetch(path, session);
+}
+
+export async function switchActiveOrg(orgId: string, devUser?: string) {
+  const session = await requireDriveSession(devUser);
+  const next = orgId.trim();
+  if (!next) return;
+
+  if (session.devMode) {
+    const { cookies } = await import("next/headers");
+    const jar = await cookies();
+    jar.set("dev_org", next, { httpOnly: true, sameSite: "lax", path: "/", maxAge: 60 * 60 * 24 * 7 });
+    revalidateDrive();
+    return;
+  }
+
+  if (!session.accessToken) throw new Error("unauthorized");
+  const { internalBase, clientId } = await import("../lib/oidc/env");
+  const { readCookie } = await import("../lib/oidc/cookies");
+  const switchRes = await fetch(`${internalBase()}/v1/active-org`, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${session.accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ orgId: next }),
+    cache: "no-store",
+  });
+  if (!switchRes.ok) {
+    throw new Error(await switchRes.text());
+  }
+
+  const refresh = await readCookie("rp_refresh");
+  if (refresh) {
+    const body = new URLSearchParams({
+      grant_type: "refresh_token",
+      client_id: clientId(),
+      refresh_token: refresh,
+    });
+    const tokenRes = await fetch(`${internalBase()}/token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body,
+      cache: "no-store",
+    });
+    if (tokenRes.ok) {
+      const tokens = (await tokenRes.json()) as {
+        access_token?: string;
+        id_token?: string;
+        refresh_token?: string;
+      };
+      const { cookies } = await import("next/headers");
+      const { cookieKey } = await import("../lib/oidc/cookies");
+      const jar = await cookies();
+      const base = { httpOnly: true, sameSite: "lax" as const, path: "/", maxAge: 60 * 60 * 24 * 7 };
+      if (tokens.access_token) jar.set(cookieKey("rp_access"), tokens.access_token, base);
+      if (tokens.id_token) jar.set(cookieKey("rp_id"), tokens.id_token, base);
+      if (tokens.refresh_token) jar.set(cookieKey("rp_refresh"), tokens.refresh_token, base);
+    }
+  }
+  revalidateDrive();
 }
 
 /** PUT は署名 URL（Compose は localhost:3900、連携 K8s は garage.localhost）へ。 */

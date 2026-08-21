@@ -63,25 +63,25 @@ func (s *Store) Close() { s.pool.Close() }
 
 func (s *Store) CreatePendingFile(ctx context.Context, f domain.File) error {
 	_, err := s.pool.Exec(ctx, `
-		INSERT INTO files (id, owner_sub, folder_id, object_key, content_type, size_bytes, purpose, status, variants)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-		f.ID, f.OwnerSub, emptyToNil(f.FolderID), f.ObjectKey, f.ContentType, f.SizeBytes, f.Purpose, string(f.Status), f.Variants.JSON(),
+		INSERT INTO files (id, owner_sub, org_id, folder_id, object_key, content_type, size_bytes, purpose, status, variants)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+		f.ID, f.OwnerSub, f.OrgID, emptyToNil(f.FolderID), f.ObjectKey, f.ContentType, f.SizeBytes, f.Purpose, string(f.Status), f.Variants.JSON(),
 	)
 	return err
 }
 
 func (s *Store) GetFile(ctx context.Context, id string) (domain.File, error) {
 	row := s.pool.QueryRow(ctx, `
-		SELECT id, owner_sub, folder_id, object_key, content_type, size_bytes, purpose, status, variants, created_at
+		SELECT id, owner_sub, org_id, folder_id, object_key, content_type, size_bytes, purpose, status, variants, created_at
 		FROM files WHERE id = $1`, id)
 	return scanFile(row)
 }
 
-func (s *Store) ListFilesByOwner(ctx context.Context, ownerSub, folderID string, limit int) ([]domain.File, error) {
+func (s *Store) ListFilesByOwner(ctx context.Context, ownerSub, orgID, folderID string, limit int) ([]domain.File, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, owner_sub, folder_id, object_key, content_type, size_bytes, purpose, status, variants, created_at
-		FROM files WHERE owner_sub = $1 AND folder_id IS NOT DISTINCT FROM $2
-		ORDER BY created_at DESC LIMIT $3`, ownerSub, emptyToNil(folderID), limit)
+		SELECT id, owner_sub, org_id, folder_id, object_key, content_type, size_bytes, purpose, status, variants, created_at
+		FROM files WHERE owner_sub = $1 AND org_id = $2 AND folder_id IS NOT DISTINCT FROM $3
+		ORDER BY created_at DESC LIMIT $4`, ownerSub, orgID, emptyToNil(folderID), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -229,18 +229,18 @@ func (s *Store) DeleteFile(ctx context.Context, id string) error {
 
 func (s *Store) CreateShareLink(ctx context.Context, l domain.ShareLink) error {
 	_, err := s.pool.Exec(ctx, `
-		INSERT INTO share_links (id, token, file_id, owner_sub, password_hash, expires_at, created_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-		l.ID, l.Token, l.FileID, l.OwnerSub, l.PasswordHash, l.ExpiresAt.UTC(), l.CreatedAt.UTC())
+		INSERT INTO share_links (id, token, file_id, owner_sub, org_id, password_hash, expires_at, created_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+		l.ID, l.Token, l.FileID, l.OwnerSub, l.OrgID, l.PasswordHash, l.ExpiresAt.UTC(), l.CreatedAt.UTC())
 	return err
 }
 
 func (s *Store) GetShareLinkByToken(ctx context.Context, token string) (domain.ShareLink, error) {
 	row := s.pool.QueryRow(ctx, `
-		SELECT id, token, file_id, owner_sub, password_hash, expires_at, created_at
+		SELECT id, token, file_id, owner_sub, org_id, password_hash, expires_at, created_at
 		FROM share_links WHERE token = $1`, token)
 	var l domain.ShareLink
-	if err := row.Scan(&l.ID, &l.Token, &l.FileID, &l.OwnerSub, &l.PasswordHash, &l.ExpiresAt, &l.CreatedAt); err != nil {
+	if err := row.Scan(&l.ID, &l.Token, &l.FileID, &l.OwnerSub, &l.OrgID, &l.PasswordHash, &l.ExpiresAt, &l.CreatedAt); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return domain.ShareLink{}, domain.ErrNotFound
 		}
@@ -251,9 +251,9 @@ func (s *Store) GetShareLinkByToken(ctx context.Context, token string) (domain.S
 
 func (s *Store) CreateFolder(ctx context.Context, f domain.Folder) error {
 	_, err := s.pool.Exec(ctx, `
-		INSERT INTO folders (id, owner_sub, parent_id, name, created_at)
-		VALUES ($1,$2,$3,$4,$5)`,
-		f.ID, f.OwnerSub, emptyToNil(f.ParentID), f.Name, f.CreatedAt.UTC())
+		INSERT INTO folders (id, owner_sub, org_id, parent_id, name, created_at)
+		VALUES ($1,$2,$3,$4,$5,$6)`,
+		f.ID, f.OwnerSub, f.OrgID, emptyToNil(f.ParentID), f.Name, f.CreatedAt.UTC())
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
@@ -266,10 +266,10 @@ func (s *Store) CreateFolder(ctx context.Context, f domain.Folder) error {
 
 func (s *Store) GetFolder(ctx context.Context, id string) (domain.Folder, error) {
 	row := s.pool.QueryRow(ctx, `
-		SELECT id, owner_sub, parent_id, name, created_at FROM folders WHERE id = $1`, id)
+		SELECT id, owner_sub, org_id, parent_id, name, created_at FROM folders WHERE id = $1`, id)
 	var f domain.Folder
 	var parent *string
-	if err := row.Scan(&f.ID, &f.OwnerSub, &parent, &f.Name, &f.CreatedAt); err != nil {
+	if err := row.Scan(&f.ID, &f.OwnerSub, &f.OrgID, &parent, &f.Name, &f.CreatedAt); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return domain.Folder{}, domain.ErrNotFound
 		}
@@ -281,11 +281,11 @@ func (s *Store) GetFolder(ctx context.Context, id string) (domain.Folder, error)
 	return f, nil
 }
 
-func (s *Store) ListFolders(ctx context.Context, ownerSub, parentID string) ([]domain.Folder, error) {
+func (s *Store) ListFolders(ctx context.Context, ownerSub, orgID, parentID string) ([]domain.Folder, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, owner_sub, parent_id, name, created_at
-		FROM folders WHERE owner_sub = $1 AND parent_id IS NOT DISTINCT FROM $2
-		ORDER BY name`, ownerSub, emptyToNil(parentID))
+		SELECT id, owner_sub, org_id, parent_id, name, created_at
+		FROM folders WHERE owner_sub = $1 AND org_id = $2 AND parent_id IS NOT DISTINCT FROM $3
+		ORDER BY name`, ownerSub, orgID, emptyToNil(parentID))
 	if err != nil {
 		return nil, err
 	}
@@ -294,7 +294,7 @@ func (s *Store) ListFolders(ctx context.Context, ownerSub, parentID string) ([]d
 	for rows.Next() {
 		var f domain.Folder
 		var parent *string
-		if err := rows.Scan(&f.ID, &f.OwnerSub, &parent, &f.Name, &f.CreatedAt); err != nil {
+		if err := rows.Scan(&f.ID, &f.OwnerSub, &f.OrgID, &parent, &f.Name, &f.CreatedAt); err != nil {
 			return nil, err
 		}
 		if parent != nil {
@@ -345,7 +345,7 @@ func scanFile(row scannable) (domain.File, error) {
 	var st string
 	var raw []byte
 	var folderID *string
-	if err := row.Scan(&f.ID, &f.OwnerSub, &folderID, &f.ObjectKey, &f.ContentType, &f.SizeBytes, &f.Purpose, &st, &raw, &f.CreatedAt); err != nil {
+	if err := row.Scan(&f.ID, &f.OwnerSub, &f.OrgID, &folderID, &f.ObjectKey, &f.ContentType, &f.SizeBytes, &f.Purpose, &st, &raw, &f.CreatedAt); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return domain.File{}, domain.ErrNotFound
 		}

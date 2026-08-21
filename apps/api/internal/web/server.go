@@ -83,7 +83,7 @@ func (s *Server) presign(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	res, err := s.media.Presign(r.Context(), u.Sub, service.PresignInput{
+	res, err := s.media.Presign(r.Context(), u.Sub, u.OrgID, service.PresignInput{
 		ContentType: body.ContentType,
 		Size:        body.Size,
 		Purpose:     body.Purpose,
@@ -110,7 +110,7 @@ func (s *Server) complete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	res, err := s.media.Complete(r.Context(), u.Sub, body.FileID, body.ETag)
+	res, err := s.media.Complete(r.Context(), u.Sub, u.OrgID, body.FileID, body.ETag)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -125,17 +125,17 @@ func (s *Server) listFiles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	folderID := r.URL.Query().Get("folderId")
-	files, err := s.media.ListFiles(r.Context(), u.Sub, folderID, 50)
+	files, err := s.media.ListFiles(r.Context(), u.Sub, u.OrgID, folderID, 50)
 	if err != nil {
 		writeErr(w, err)
 		return
 	}
-	quota, err := s.media.GetQuota(r.Context(), u.Sub)
+	quota, err := s.media.GetQuota(r.Context(), u.Sub, u.OrgID)
 	if err != nil {
 		writeErr(w, err)
 		return
 	}
-	folders, err := s.media.ListFolders(r.Context(), u.Sub, folderID)
+	folders, err := s.media.ListFolders(r.Context(), u.Sub, u.OrgID, folderID)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -149,7 +149,7 @@ func (s *Server) getQuota(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	quota, err := s.media.GetQuota(r.Context(), u.Sub)
+	quota, err := s.media.GetQuota(r.Context(), u.Sub, u.OrgID)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -171,7 +171,7 @@ func (s *Server) createFolder(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	res, err := s.media.CreateFolder(r.Context(), u.Sub, body.Name, body.ParentID)
+	res, err := s.media.CreateFolder(r.Context(), u.Sub, u.OrgID, body.Name, body.ParentID)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -185,7 +185,7 @@ func (s *Server) listFolders(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	folders, err := s.media.ListFolders(r.Context(), u.Sub, r.URL.Query().Get("parentId"))
+	folders, err := s.media.ListFolders(r.Context(), u.Sub, u.OrgID, r.URL.Query().Get("parentId"))
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -204,7 +204,7 @@ func (s *Server) getFolder(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	res, err := s.media.GetFolder(r.Context(), u.Sub, id)
+	res, err := s.media.GetFolder(r.Context(), u.Sub, u.OrgID, id)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -223,7 +223,7 @@ func (s *Server) deleteFolder(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	if err := s.media.DeleteFolder(r.Context(), u.Sub, id); err != nil {
+	if err := s.media.DeleteFolder(r.Context(), u.Sub, u.OrgID, id); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -237,7 +237,7 @@ func (s *Server) getFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := strings.TrimPrefix(r.URL.Path, "/v1/files/")
-	res, err := s.media.GetFile(r.Context(), u.Sub, id)
+	res, err := s.media.GetFile(r.Context(), u.Sub, u.OrgID, id)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -256,7 +256,7 @@ func (s *Server) deleteFile(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	if err := s.media.DeleteFile(r.Context(), u.Sub, id); err != nil {
+	if err := s.media.DeleteFile(r.Context(), u.Sub, u.OrgID, id); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -280,7 +280,7 @@ func (s *Server) createShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ttl := time.Duration(body.ExpiresInSeconds) * time.Second
-	res, err := s.media.CreateShareLink(r.Context(), u.Sub, body.FileID, ttl, body.Password)
+	res, err := s.media.CreateShareLink(r.Context(), u.Sub, u.OrgID, body.FileID, ttl, body.Password)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -299,7 +299,7 @@ func (s *Server) getJob(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	res, err := s.media.GetJob(r.Context(), u.Sub, id)
+	res, err := s.media.GetJob(r.Context(), u.Sub, u.OrgID, id)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -318,7 +318,7 @@ func (s *Server) retryJob(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	res, err := s.media.RetryJob(r.Context(), u.Sub, id)
+	res, err := s.media.RetryJob(r.Context(), u.Sub, u.OrgID, id)
 	if err != nil {
 		writeErr(w, err)
 		return

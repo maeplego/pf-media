@@ -139,7 +139,7 @@ func NewMedia(store domain.Store, objects ObjectStore, q JobQueue, quotaLimit, m
 	}
 }
 
-func (m *Media) Presign(ctx context.Context, ownerSub string, in PresignInput) (PresignResult, error) {
+func (m *Media) Presign(ctx context.Context, ownerSub, orgID string, in PresignInput) (PresignResult, error) {
 	if in.Size <= 0 {
 		return PresignResult{}, domain.ErrInvalid
 	}
@@ -159,7 +159,7 @@ func (m *Media) Presign(ctx context.Context, ownerSub string, in PresignInput) (
 	if used+in.Size > m.quotaLimit {
 		return PresignResult{}, domain.ErrQuota
 	}
-	if err := m.ensureOwnedFolder(ctx, ownerSub, in.FolderID); err != nil {
+	if err := m.ensureOwnedFolder(ctx, ownerSub, orgID, in.FolderID); err != nil {
 		return PresignResult{}, err
 	}
 
@@ -168,6 +168,7 @@ func (m *Media) Presign(ctx context.Context, ownerSub string, in PresignInput) (
 	f := domain.File{
 		ID:          fileID,
 		OwnerSub:    ownerSub,
+		OrgID:       orgID,
 		FolderID:    in.FolderID,
 		ObjectKey:   key,
 		ContentType: in.ContentType,
@@ -186,12 +187,12 @@ func (m *Media) Presign(ctx context.Context, ownerSub string, in PresignInput) (
 	return PresignResult{FileID: fileID, UploadURL: url, ObjectKey: key}, nil
 }
 
-func (m *Media) Complete(ctx context.Context, ownerSub, fileID, etag string) (FileView, error) {
+func (m *Media) Complete(ctx context.Context, ownerSub, orgID, fileID, etag string) (FileView, error) {
 	f, err := m.store.GetFile(ctx, fileID)
 	if err != nil {
 		return FileView{}, err
 	}
-	if f.OwnerSub != ownerSub {
+	if f.OwnerSub != ownerSub || f.OrgID != orgID {
 		return FileView{}, domain.ErrForbidden
 	}
 	if f.Status != domain.FilePending {
@@ -264,7 +265,7 @@ const (
 	maxShareTTL     = 7 * 24 * time.Hour
 )
 
-func (m *Media) CreateShareLink(ctx context.Context, ownerSub, fileID string, ttl time.Duration, passwordPlain string) (ShareLinkView, error) {
+func (m *Media) CreateShareLink(ctx context.Context, ownerSub, orgID, fileID string, ttl time.Duration, passwordPlain string) (ShareLinkView, error) {
 	if ttl <= 0 {
 		ttl = defaultShareTTL
 	}
@@ -278,7 +279,7 @@ func (m *Media) CreateShareLink(ctx context.Context, ownerSub, fileID string, tt
 	if err != nil {
 		return ShareLinkView{}, err
 	}
-	if f.OwnerSub != ownerSub {
+	if f.OwnerSub != ownerSub || f.OrgID != orgID {
 		return ShareLinkView{}, domain.ErrForbidden
 	}
 	if f.Status == domain.FileFailed {
@@ -301,6 +302,7 @@ func (m *Media) CreateShareLink(ctx context.Context, ownerSub, fileID string, tt
 		Token:        token,
 		FileID:       fileID,
 		OwnerSub:     ownerSub,
+		OrgID:        orgID,
 		PasswordHash: hash,
 		ExpiresAt:    now.Add(ttl),
 		CreatedAt:    now,
@@ -378,25 +380,25 @@ func (m *Media) ShareDownloadURL(ctx context.Context, token, variant, passwordPl
 	return "", domain.ErrNotFound
 }
 
-func (m *Media) GetFile(ctx context.Context, requesterSub, fileID string) (FileView, error) {
+func (m *Media) GetFile(ctx context.Context, requesterSub, orgID, fileID string) (FileView, error) {
 	f, err := m.store.GetFile(ctx, fileID)
 	if err != nil {
 		return FileView{}, err
 	}
-	if f.OwnerSub != requesterSub {
+	if f.OwnerSub != requesterSub || f.OrgID != orgID {
 		return FileView{}, domain.ErrForbidden
 	}
 	return m.withJob(ctx, f)
 }
 
-func (m *Media) ListFiles(ctx context.Context, ownerSub, folderID string, limit int) ([]FileView, error) {
+func (m *Media) ListFiles(ctx context.Context, ownerSub, orgID, folderID string, limit int) ([]FileView, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 50
 	}
-	if err := m.ensureOwnedFolder(ctx, ownerSub, folderID); err != nil {
+	if err := m.ensureOwnedFolder(ctx, ownerSub, orgID, folderID); err != nil {
 		return nil, err
 	}
-	files, err := m.store.ListFilesByOwner(ctx, ownerSub, folderID, limit)
+	files, err := m.store.ListFilesByOwner(ctx, ownerSub, orgID, folderID, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -411,7 +413,8 @@ func (m *Media) ListFiles(ctx context.Context, ownerSub, folderID string, limit 
 	return out, nil
 }
 
-func (m *Media) GetQuota(ctx context.Context, ownerSub string) (QuotaView, error) {
+func (m *Media) GetQuota(ctx context.Context, ownerSub, orgID string) (QuotaView, error) {
+	_ = orgID
 	used, err := m.store.GetQuotaUsed(ctx, ownerSub)
 	if err != nil {
 		return QuotaView{}, err
@@ -432,7 +435,7 @@ func folderNameOK(name string) bool {
 	return true
 }
 
-func (m *Media) ensureOwnedFolder(ctx context.Context, ownerSub, folderID string) error {
+func (m *Media) ensureOwnedFolder(ctx context.Context, ownerSub, orgID, folderID string) error {
 	if folderID == "" {
 		return nil
 	}
@@ -440,23 +443,24 @@ func (m *Media) ensureOwnedFolder(ctx context.Context, ownerSub, folderID string
 	if err != nil {
 		return err
 	}
-	if f.OwnerSub != ownerSub {
+	if f.OwnerSub != ownerSub || f.OrgID != orgID {
 		return domain.ErrForbidden
 	}
 	return nil
 }
 
-func (m *Media) CreateFolder(ctx context.Context, ownerSub, name, parentID string) (FolderView, error) {
+func (m *Media) CreateFolder(ctx context.Context, ownerSub, orgID, name, parentID string) (FolderView, error) {
 	if !folderNameOK(name) {
 		return FolderView{}, domain.ErrInvalid
 	}
-	if err := m.ensureOwnedFolder(ctx, ownerSub, parentID); err != nil {
+	if err := m.ensureOwnedFolder(ctx, ownerSub, orgID, parentID); err != nil {
 		return FolderView{}, err
 	}
 	now := time.Now().UTC()
 	f := domain.Folder{
 		ID:        id.New(),
 		OwnerSub:  ownerSub,
+		OrgID:     orgID,
 		ParentID:  parentID,
 		Name:      name,
 		CreatedAt: now,
@@ -467,11 +471,11 @@ func (m *Media) CreateFolder(ctx context.Context, ownerSub, name, parentID strin
 	return FolderView{ID: f.ID, ParentID: f.ParentID, Name: f.Name, CreatedAt: f.CreatedAt}, nil
 }
 
-func (m *Media) ListFolders(ctx context.Context, ownerSub, parentID string) ([]FolderView, error) {
-	if err := m.ensureOwnedFolder(ctx, ownerSub, parentID); err != nil {
+func (m *Media) ListFolders(ctx context.Context, ownerSub, orgID, parentID string) ([]FolderView, error) {
+	if err := m.ensureOwnedFolder(ctx, ownerSub, orgID, parentID); err != nil {
 		return nil, err
 	}
-	folders, err := m.store.ListFolders(ctx, ownerSub, parentID)
+	folders, err := m.store.ListFolders(ctx, ownerSub, orgID, parentID)
 	if err != nil {
 		return nil, err
 	}
@@ -482,18 +486,18 @@ func (m *Media) ListFolders(ctx context.Context, ownerSub, parentID string) ([]F
 	return out, nil
 }
 
-func (m *Media) GetFolder(ctx context.Context, ownerSub, folderID string) (FolderView, error) {
+func (m *Media) GetFolder(ctx context.Context, ownerSub, orgID, folderID string) (FolderView, error) {
 	f, err := m.store.GetFolder(ctx, folderID)
 	if err != nil {
 		return FolderView{}, err
 	}
-	if f.OwnerSub != ownerSub {
+	if f.OwnerSub != ownerSub || f.OrgID != orgID {
 		return FolderView{}, domain.ErrForbidden
 	}
 	return FolderView{ID: f.ID, ParentID: f.ParentID, Name: f.Name, CreatedAt: f.CreatedAt}, nil
 }
 
-func (m *Media) DeleteFolder(ctx context.Context, ownerSub, folderID string) error {
+func (m *Media) DeleteFolder(ctx context.Context, ownerSub, orgID, folderID string) error {
 	f, err := m.store.GetFolder(ctx, folderID)
 	if errors.Is(err, domain.ErrNotFound) {
 		return nil
@@ -501,25 +505,25 @@ func (m *Media) DeleteFolder(ctx context.Context, ownerSub, folderID string) err
 	if err != nil {
 		return err
 	}
-	if f.OwnerSub != ownerSub {
+	if f.OwnerSub != ownerSub || f.OrgID != orgID {
 		return domain.ErrForbidden
 	}
-	return m.deleteFolderTree(ctx, ownerSub, folderID)
+	return m.deleteFolderTree(ctx, ownerSub, orgID, folderID)
 }
 
-func (m *Media) deleteFolderTree(ctx context.Context, ownerSub, folderID string) error {
-	children, err := m.store.ListFolders(ctx, ownerSub, folderID)
+func (m *Media) deleteFolderTree(ctx context.Context, ownerSub, orgID, folderID string) error {
+	children, err := m.store.ListFolders(ctx, ownerSub, orgID, folderID)
 	if err != nil {
 		return err
 	}
 	for _, child := range children {
-		if err := m.deleteFolderTree(ctx, ownerSub, child.ID); err != nil {
+		if err := m.deleteFolderTree(ctx, ownerSub, orgID, child.ID); err != nil {
 			return err
 		}
 	}
 	const batch = 100
 	for {
-		files, err := m.store.ListFilesByOwner(ctx, ownerSub, folderID, batch)
+		files, err := m.store.ListFilesByOwner(ctx, ownerSub, orgID, folderID, batch)
 		if err != nil {
 			return err
 		}
@@ -527,7 +531,7 @@ func (m *Media) deleteFolderTree(ctx context.Context, ownerSub, folderID string)
 			break
 		}
 		for _, file := range files {
-			if err := m.DeleteFile(ctx, ownerSub, file.ID); err != nil {
+			if err := m.DeleteFile(ctx, ownerSub, orgID, file.ID); err != nil {
 				return err
 			}
 		}
@@ -538,7 +542,7 @@ func (m *Media) deleteFolderTree(ctx context.Context, ownerSub, folderID string)
 	return m.store.DeleteFolder(ctx, folderID)
 }
 
-func (m *Media) DeleteFile(ctx context.Context, ownerSub, fileID string) error {
+func (m *Media) DeleteFile(ctx context.Context, ownerSub, orgID, fileID string) error {
 	f, err := m.store.GetFile(ctx, fileID)
 	if errors.Is(err, domain.ErrNotFound) {
 		// Next の server action が二重に飛ぶことがある。既に消えていれば成功と同じ。
@@ -547,7 +551,7 @@ func (m *Media) DeleteFile(ctx context.Context, ownerSub, fileID string) error {
 	if err != nil {
 		return err
 	}
-	if f.OwnerSub != ownerSub {
+	if f.OwnerSub != ownerSub || f.OrgID != orgID {
 		return domain.ErrForbidden
 	}
 	if err := m.objects.DeletePrefix(ctx, objectstore.ObjectPrefix(f.OwnerSub, f.ID)); err != nil {
@@ -562,8 +566,8 @@ func (m *Media) DeleteFile(ctx context.Context, ownerSub, fileID string) error {
 	return m.store.AddQuota(ctx, ownerSub, -f.SizeBytes, m.quotaLimit)
 }
 
-func (m *Media) GetJob(ctx context.Context, ownerSub, jobID string) (JobView, error) {
-	j, f, err := m.jobOwnedBy(ctx, ownerSub, jobID)
+func (m *Media) GetJob(ctx context.Context, ownerSub, orgID, jobID string) (JobView, error) {
+	j, f, err := m.jobOwnedBy(ctx, ownerSub, orgID, jobID)
 	if err != nil {
 		return JobView{}, err
 	}
@@ -571,8 +575,8 @@ func (m *Media) GetJob(ctx context.Context, ownerSub, jobID string) (JobView, er
 	return JobView{ID: j.ID, FileID: j.FileID, Status: j.Status, Error: j.Error, UpdatedAt: j.UpdatedAt}, nil
 }
 
-func (m *Media) RetryJob(ctx context.Context, ownerSub, jobID string) (JobView, error) {
-	j, f, err := m.jobOwnedBy(ctx, ownerSub, jobID)
+func (m *Media) RetryJob(ctx context.Context, ownerSub, orgID, jobID string) (JobView, error) {
+	j, f, err := m.jobOwnedBy(ctx, ownerSub, orgID, jobID)
 	if err != nil {
 		return JobView{}, err
 	}
@@ -602,7 +606,7 @@ func (m *Media) RetryJob(ctx context.Context, ownerSub, jobID string) (JobView, 
 	return JobView{ID: j.ID, FileID: j.FileID, Status: j.Status, Error: j.Error, UpdatedAt: time.Now().UTC()}, nil
 }
 
-func (m *Media) jobOwnedBy(ctx context.Context, ownerSub, jobID string) (domain.Job, domain.File, error) {
+func (m *Media) jobOwnedBy(ctx context.Context, ownerSub, orgID, jobID string) (domain.Job, domain.File, error) {
 	j, err := m.store.GetJob(ctx, jobID)
 	if err != nil {
 		return domain.Job{}, domain.File{}, err
@@ -611,7 +615,7 @@ func (m *Media) jobOwnedBy(ctx context.Context, ownerSub, jobID string) (domain.
 	if err != nil {
 		return domain.Job{}, domain.File{}, err
 	}
-	if f.OwnerSub != ownerSub {
+	if f.OwnerSub != ownerSub || f.OrgID != orgID {
 		return domain.Job{}, domain.File{}, domain.ErrForbidden
 	}
 	return j, f, nil

@@ -58,9 +58,9 @@ services:
       MEDIA_DEV_AUTH: ${MEDIA_DEV_AUTH:-true}
       MEDIA_QUOTA_BYTES: ${MEDIA_QUOTA_BYTES}
       MEDIA_MAX_UPLOAD_BYTES: ${MEDIA_MAX_UPLOAD_BYTES}
-      # OIDC_ISSUER: ${OIDC_ISSUER:-}
-      # OIDC_INTERNAL_BASE: ${OIDC_INTERNAL_BASE:-}
-      # OIDC_AUDIENCE: ${OIDC_AUDIENCE:-}
+      OIDC_ISSUER: ${OIDC_ISSUER:-}
+      OIDC_INTERNAL_BASE: ${OIDC_INTERNAL_BASE:-}
+      OIDC_AUDIENCE: ${OIDC_AUDIENCE:-}
     ports:
       - "8090:8090"
     extra_hosts:
@@ -94,11 +94,11 @@ services:
       context: ../apps/web
     environment:
       MEDIA_API_URL: http://api:8090
-      # OIDC_ISSUER: http://localhost:8080
-      # OIDC_INTERNAL_BASE: http://host.docker.internal:8080
-      # OIDC_CLIENT_ID: pf-media-web
-      # OIDC_REDIRECT_URI: http://localhost:3004/callback
-      # OIDC_POST_LOGOUT_REDIRECT_URI: http://localhost:3004/logged-out
+      OIDC_ISSUER: ${OIDC_ISSUER:-}
+      OIDC_INTERNAL_BASE: ${OIDC_INTERNAL_BASE:-}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
+      OIDC_REDIRECT_URI: ${OIDC_REDIRECT_URI:-}
+      OIDC_POST_LOGOUT_REDIRECT_URI: ${OIDC_POST_LOGOUT_REDIRECT_URI:-}
     extra_hosts:
       - "localhost:host-gateway"
     ports:
