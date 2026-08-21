@@ -249,6 +249,37 @@ func (s *Store) GetShareLinkByToken(ctx context.Context, token string) (domain.S
 	return l, nil
 }
 
+func (s *Store) ListShareLinksByOwner(ctx context.Context, ownerSub, orgID string) ([]domain.ShareLink, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, token, file_id, owner_sub, org_id, password_hash, expires_at, created_at
+		FROM share_links WHERE owner_sub = $1 AND org_id = $2
+		ORDER BY created_at DESC`, ownerSub, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]domain.ShareLink, 0)
+	for rows.Next() {
+		var l domain.ShareLink
+		if err := rows.Scan(&l.ID, &l.Token, &l.FileID, &l.OwnerSub, &l.OrgID, &l.PasswordHash, &l.ExpiresAt, &l.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, l)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) DeleteShareLink(ctx context.Context, token string) error {
+	tag, err := s.pool.Exec(ctx, `DELETE FROM share_links WHERE token = $1`, token)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
 func (s *Store) CreateFolder(ctx context.Context, f domain.Folder) error {
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO folders (id, owner_sub, org_id, parent_id, name, created_at)

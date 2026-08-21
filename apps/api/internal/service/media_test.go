@@ -112,7 +112,7 @@ func TestPresignCompleteQuota(t *testing.T) {
 	}
 }
 
-func TestCompleteForbidden(t *testing.T) {
+func TestCompleteNotFound(t *testing.T) {
 	store := mem.New()
 	objs := &fakeObjects{}
 	svc := NewMedia(store, objs, nil, 10000, 5000, time.Minute)
@@ -121,8 +121,36 @@ func TestCompleteForbidden(t *testing.T) {
 	})
 	objs.keys[res.ObjectKey] = 10
 	_, err := svc.Complete(context.Background(), "other", "org-demo-a", res.FileID, "")
-	if err != domain.ErrForbidden {
-		t.Fatalf("expected forbidden, got %v", err)
+	if err != domain.ErrNotFound {
+		t.Fatalf("expected not found, got %v", err)
+	}
+}
+
+func TestCompleteEtagMismatch(t *testing.T) {
+	store := mem.New()
+	objs := &fakeObjects{}
+	svc := NewMedia(store, objs, nil, 10000, 5000, time.Minute)
+	res, err := svc.Presign(context.Background(), "owner", "org-demo-a", PresignInput{
+		ContentType: "image/png", Size: 10, Purpose: "drive",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	objs.keys[res.ObjectKey] = 10
+	_, err = svc.Complete(context.Background(), "owner", "org-demo-a", res.FileID, "wrong-etag")
+	if err != domain.ErrInvalid {
+		t.Fatalf("expected invalid, got %v", err)
+	}
+	_, err = svc.Complete(context.Background(), "owner", "org-demo-a", res.FileID, "")
+	if err != domain.ErrInvalid {
+		t.Fatalf("empty etag: expected invalid, got %v", err)
+	}
+	view, err := svc.Complete(context.Background(), "owner", "org-demo-a", res.FileID, `"etag"`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.ID != res.FileID {
+		t.Fatalf("file %s", view.ID)
 	}
 }
 
@@ -199,14 +227,43 @@ func completeOwnedPNG(t *testing.T, svc *Media, objs *fakeObjects, owner string)
 	return res.FileID
 }
 
-func TestCreateShareLinkForbidden(t *testing.T) {
+func TestCreateShareLinkNotFound(t *testing.T) {
 	store := mem.New()
 	objs := &fakeObjects{}
 	svc := NewMedia(store, objs, nil, 10_000, 5000, time.Minute)
 	fileID := completeOwnedPNG(t, svc, objs, "owner")
 	_, err := svc.CreateShareLink(context.Background(), "other", "org-demo-a", fileID, time.Hour, "")
-	if err != domain.ErrForbidden {
-		t.Fatalf("expected forbidden, got %v", err)
+	if err != domain.ErrNotFound {
+		t.Fatalf("expected not found, got %v", err)
+	}
+}
+
+func TestListAndDeleteShareLinks(t *testing.T) {
+	store := mem.New()
+	objs := &fakeObjects{}
+	svc := NewMedia(store, objs, nil, 10_000, 5000, time.Minute)
+	fileID := completeOwnedPNG(t, svc, objs, "owner")
+	link, err := svc.CreateShareLink(context.Background(), "owner", "org-demo-a", fileID, time.Hour, "pw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed, err := svc.ListShareLinks(context.Background(), "owner", "org-demo-a")
+	if err != nil || len(listed) != 1 || listed[0].Token != link.Token || !listed[0].PasswordSet {
+		t.Fatalf("list %+v %v", listed, err)
+	}
+	otherListed, err := svc.ListShareLinks(context.Background(), "other", "org-demo-a")
+	if err != nil || len(otherListed) != 0 {
+		t.Fatalf("other list %+v %v", otherListed, err)
+	}
+	if err := svc.DeleteShareLink(context.Background(), "other", "org-demo-a", link.Token); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("other delete: %v", err)
+	}
+	if err := svc.DeleteShareLink(context.Background(), "owner", "org-demo-a", link.Token); err != nil {
+		t.Fatal(err)
+	}
+	listed, err = svc.ListShareLinks(context.Background(), "owner", "org-demo-a")
+	if err != nil || len(listed) != 0 {
+		t.Fatalf("after delete %+v %v", listed, err)
 	}
 }
 
@@ -362,7 +419,7 @@ func TestDeleteFileReclaimsQuotaAndObjects(t *testing.T) {
 	if _, err := svc.CreateShareLink(context.Background(), "owner", "org-demo-a", fileID, time.Hour, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.DeleteFile(context.Background(), "other", "org-demo-a", fileID); !errors.Is(err, domain.ErrForbidden) {
+	if err := svc.DeleteFile(context.Background(), "other", "org-demo-a", fileID); !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("other user: %v", err)
 	}
 	q, err := svc.GetQuota(context.Background(), "owner", "org-demo-a")
@@ -370,7 +427,7 @@ func TestDeleteFileReclaimsQuotaAndObjects(t *testing.T) {
 		t.Fatal(err)
 	}
 	if q.UsedBytes != 10 {
-		t.Fatalf("quota changed after forbidden delete: %d", q.UsedBytes)
+		t.Fatalf("quota changed after not-found delete: %d", q.UsedBytes)
 	}
 	if err := svc.DeleteFile(context.Background(), "owner", "org-demo-a", fileID); err != nil {
 		t.Fatal(err)

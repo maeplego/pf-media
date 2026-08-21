@@ -211,6 +211,28 @@ func (s *Store) GetShareLinkByToken(_ context.Context, token string) (domain.Sha
 	return l, nil
 }
 
+func (s *Store) ListShareLinksByOwner(_ context.Context, ownerSub, orgID string) ([]domain.ShareLink, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]domain.ShareLink, 0)
+	for _, l := range s.shares {
+		if l.OwnerSub == ownerSub && l.OrgID == orgID {
+			out = append(out, l)
+		}
+	}
+	return out, nil
+}
+
+func (s *Store) DeleteShareLink(_ context.Context, token string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.shares[token]; !ok {
+		return domain.ErrNotFound
+	}
+	delete(s.shares, token)
+	return nil
+}
+
 func (s *Store) CreateFolder(_ context.Context, f domain.Folder) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

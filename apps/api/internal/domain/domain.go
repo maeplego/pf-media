@@ -121,6 +121,8 @@ type Store interface {
 	DeleteFile(ctx context.Context, id string) error
 	CreateShareLink(ctx context.Context, l ShareLink) error
 	GetShareLinkByToken(ctx context.Context, token string) (ShareLink, error)
+	ListShareLinksByOwner(ctx context.Context, ownerSub, orgID string) ([]ShareLink, error)
+	DeleteShareLink(ctx context.Context, token string) error
 	CreateFolder(ctx context.Context, f Folder) error
 	GetFolder(ctx context.Context, id string) (Folder, error)
 	ListFolders(ctx context.Context, ownerSub, orgID, parentID string) ([]Folder, error)

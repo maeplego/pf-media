@@ -145,7 +145,7 @@ func TestDriveUploadQuotaDeleteE2E(t *testing.T) {
 	}
 
 	code, body = apiJSON(t, http.MethodGet, "/v1/files/"+presign.FileID, "other-"+sub, nil)
-	if code != http.StatusForbidden {
+	if code != http.StatusNotFound {
 		t.Fatalf("other get %d %s", code, body)
 	}
 

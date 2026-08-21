@@ -99,7 +99,7 @@ func TestQuotaAndDeleteHTTP(t *testing.T) {
 	}
 
 	rec = doJSON(t, h, http.MethodDelete, "/v1/files/"+fileID, "other", "")
-	if rec.Code != http.StatusForbidden {
+	if rec.Code != http.StatusNotFound {
 		t.Fatalf("other delete %d %s", rec.Code, rec.Body.String())
 	}
 
@@ -284,5 +284,50 @@ func TestPDFUploadHTTP(t *testing.T) {
 	}
 	if file.Status != "ready" || file.JobID != "" || file.ContentType != "application/pdf" {
 		t.Fatalf("file %+v", file)
+	}
+}
+
+func TestShareLinksListDeleteHTTP(t *testing.T) {
+	h := driveHandler()
+	fileID := completePNG(t, h, "owner")
+	rec := doJSON(t, h, http.MethodPost, "/v1/share-links", "owner", `{"fileId":"`+fileID+`","expiresInSeconds":3600}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("create %d %s", rec.Code, rec.Body.String())
+	}
+	var created struct {
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil || created.Token == "" {
+		t.Fatalf("create body %s", rec.Body.String())
+	}
+	rec = doJSON(t, h, http.MethodGet, "/v1/share-links", "owner", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list %d %s", rec.Code, rec.Body.String())
+	}
+	var listed struct {
+		ShareLinks []struct {
+			Token string `json:"token"`
+		} `json:"shareLinks"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &listed); err != nil {
+		t.Fatal(err)
+	}
+	if len(listed.ShareLinks) != 1 || listed.ShareLinks[0].Token != created.Token {
+		t.Fatalf("list %+v", listed)
+	}
+	rec = doJSON(t, h, http.MethodDelete, "/v1/share-links/"+created.Token, "other", "")
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("other delete %d", rec.Code)
+	}
+	rec = doJSON(t, h, http.MethodDelete, "/v1/share-links/"+created.Token, "owner", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("delete %d %s", rec.Code, rec.Body.String())
+	}
+	rec = doJSON(t, h, http.MethodGet, "/v1/share-links", "owner", "")
+	if err := json.Unmarshal(rec.Body.Bytes(), &listed); err != nil {
+		t.Fatal(err)
+	}
+	if len(listed.ShareLinks) != 0 {
+		t.Fatalf("left %+v", listed)
 	}
 }

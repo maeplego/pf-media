@@ -139,6 +139,21 @@ func NewMedia(store domain.Store, objects ObjectStore, q JobQueue, quotaLimit, m
 	}
 }
 
+func quotaSubject(orgID, ownerSub string) string {
+	if strings.TrimSpace(orgID) != "" {
+		return "org:" + orgID
+	}
+	return "user:" + ownerSub
+}
+
+var allowedPurposes = map[string]struct{}{
+	"drive": {}, "wiki": {}, "chat": {}, "blog": {}, "blog-cover": {}, "product": {},
+}
+
+func normalizeETag(s string) string {
+	return strings.Trim(s, `"`)
+}
+
 func (m *Media) Presign(ctx context.Context, ownerSub, orgID string, in PresignInput) (PresignResult, error) {
 	if in.Size <= 0 {
 		return PresignResult{}, domain.ErrInvalid
@@ -151,8 +166,10 @@ func (m *Media) Presign(ctx context.Context, ownerSub, orgID string, in PresignI
 	}
 	if in.Purpose == "" {
 		in.Purpose = "drive"
+	} else if _, ok := allowedPurposes[in.Purpose]; !ok {
+		return PresignResult{}, domain.ErrInvalid
 	}
-	used, err := m.store.GetQuotaUsed(ctx, ownerSub)
+	used, err := m.store.GetQuotaUsed(ctx, quotaSubject(orgID, ownerSub))
 	if err != nil {
 		return PresignResult{}, err
 	}
@@ -193,7 +210,7 @@ func (m *Media) Complete(ctx context.Context, ownerSub, orgID, fileID, etag stri
 		return FileView{}, err
 	}
 	if f.OwnerSub != ownerSub || f.OrgID != orgID {
-		return FileView{}, domain.ErrForbidden
+		return FileView{}, domain.ErrNotFound
 	}
 	if f.Status != domain.FilePending {
 		return FileView{}, domain.ErrConflict
@@ -216,10 +233,13 @@ func (m *Media) Complete(ctx context.Context, ownerSub, orgID, fileID, etag stri
 		_ = m.store.DeleteFile(ctx, fileID)
 		return FileView{}, domain.ErrInvalid
 	}
-	_ = etag
-	_ = gotETag
+	normGot := normalizeETag(gotETag)
+	normClient := normalizeETag(etag)
+	if normGot != "" && (normClient == "" || normClient != normGot) {
+		return FileView{}, domain.ErrInvalid
+	}
 
-	if err := m.store.AddQuota(ctx, ownerSub, size, m.quotaLimit); err != nil {
+	if err := m.store.AddQuota(ctx, quotaSubject(orgID, ownerSub), size, m.quotaLimit); err != nil {
 		_ = m.objects.Delete(ctx, f.ObjectKey)
 		return FileView{}, err
 	}
@@ -280,7 +300,7 @@ func (m *Media) CreateShareLink(ctx context.Context, ownerSub, orgID, fileID str
 		return ShareLinkView{}, err
 	}
 	if f.OwnerSub != ownerSub || f.OrgID != orgID {
-		return ShareLinkView{}, domain.ErrForbidden
+		return ShareLinkView{}, domain.ErrNotFound
 	}
 	if f.Status == domain.FileFailed {
 		return ShareLinkView{}, domain.ErrInvalid
@@ -311,6 +331,36 @@ func (m *Media) CreateShareLink(ctx context.Context, ownerSub, orgID, fileID str
 		return ShareLinkView{}, err
 	}
 	return ShareLinkView{Token: token, ExpiresAt: link.ExpiresAt, PasswordSet: hash != ""}, nil
+}
+
+func (m *Media) ListShareLinks(ctx context.Context, ownerSub, orgID string) ([]ShareLinkView, error) {
+	links, err := m.store.ListShareLinksByOwner(ctx, ownerSub, orgID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ShareLinkView, 0, len(links))
+	for _, l := range links {
+		out = append(out, ShareLinkView{
+			Token:       l.Token,
+			ExpiresAt:   l.ExpiresAt,
+			PasswordSet: l.PasswordHash != "",
+		})
+	}
+	return out, nil
+}
+
+func (m *Media) DeleteShareLink(ctx context.Context, ownerSub, orgID, token string) error {
+	if token == "" {
+		return domain.ErrNotFound
+	}
+	link, err := m.store.GetShareLinkByToken(ctx, token)
+	if err != nil {
+		return err
+	}
+	if link.OwnerSub != ownerSub || link.OrgID != orgID {
+		return domain.ErrNotFound
+	}
+	return m.store.DeleteShareLink(ctx, token)
 }
 
 func sharePasswordOK(link domain.ShareLink, provided string) error {
@@ -386,7 +436,7 @@ func (m *Media) GetFile(ctx context.Context, requesterSub, orgID, fileID string)
 		return FileView{}, err
 	}
 	if f.OwnerSub != requesterSub || f.OrgID != orgID {
-		return FileView{}, domain.ErrForbidden
+		return FileView{}, domain.ErrNotFound
 	}
 	return m.withJob(ctx, f)
 }
@@ -414,8 +464,7 @@ func (m *Media) ListFiles(ctx context.Context, ownerSub, orgID, folderID string,
 }
 
 func (m *Media) GetQuota(ctx context.Context, ownerSub, orgID string) (QuotaView, error) {
-	_ = orgID
-	used, err := m.store.GetQuotaUsed(ctx, ownerSub)
+	used, err := m.store.GetQuotaUsed(ctx, quotaSubject(orgID, ownerSub))
 	if err != nil {
 		return QuotaView{}, err
 	}
@@ -552,7 +601,7 @@ func (m *Media) DeleteFile(ctx context.Context, ownerSub, orgID, fileID string) 
 		return err
 	}
 	if f.OwnerSub != ownerSub || f.OrgID != orgID {
-		return domain.ErrForbidden
+		return domain.ErrNotFound
 	}
 	if err := m.objects.DeletePrefix(ctx, objectstore.ObjectPrefix(f.OwnerSub, f.ID)); err != nil {
 		return err
@@ -563,7 +612,7 @@ func (m *Media) DeleteFile(ctx context.Context, ownerSub, orgID, fileID string) 
 	if f.SizeBytes == 0 {
 		return nil
 	}
-	return m.store.AddQuota(ctx, ownerSub, -f.SizeBytes, m.quotaLimit)
+	return m.store.AddQuota(ctx, quotaSubject(orgID, ownerSub), -f.SizeBytes, m.quotaLimit)
 }
 
 func (m *Media) GetJob(ctx context.Context, ownerSub, orgID, jobID string) (JobView, error) {

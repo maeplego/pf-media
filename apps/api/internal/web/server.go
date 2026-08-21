@@ -51,6 +51,10 @@ func (s *Server) Routes(mw *auth.Middleware, processorToken string) http.Handler
 			s.getFile(w, r)
 		case r.Method == http.MethodPost && r.URL.Path == "/v1/share-links":
 			s.createShare(w, r)
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/share-links":
+			s.listShares(w, r)
+		case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/v1/share-links/"):
+			s.deleteShare(w, r)
 		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/v1/jobs/"):
 			s.getJob(w, r)
 		case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/v1/jobs/") && strings.HasSuffix(r.URL.Path, "/retry"):
@@ -286,6 +290,38 @@ func (s *Server) createShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, res)
+}
+
+func (s *Server) listShares(w http.ResponseWriter, r *http.Request) {
+	u, ok := auth.UserFrom(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	links, err := s.media.ListShareLinks(r.Context(), u.Sub, u.OrgID)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"shareLinks": links})
+}
+
+func (s *Server) deleteShare(w http.ResponseWriter, r *http.Request) {
+	u, ok := auth.UserFrom(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	token := strings.TrimPrefix(r.URL.Path, "/v1/share-links/")
+	if token == "" || strings.Contains(token, "/") {
+		http.NotFound(w, r)
+		return
+	}
+	if err := s.media.DeleteShareLink(r.Context(), u.Sub, u.OrgID, token); err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"deleted": true})
 }
 
 func (s *Server) getJob(w http.ResponseWriter, r *http.Request) {
